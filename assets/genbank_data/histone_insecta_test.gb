@@ -1,0 +1,530 @@
+LOCUS       PP056504                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Proxylobius helleri histone H3 (histone) gene, partial cds.
+ACCESSION   PP056504
+VERSION     PP056504.1
+KEYWORDS    .
+SOURCE      Proxylobius helleri
+  ORGANISM  Proxylobius helleri
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Proxylobius.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Proxylobius helleri"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3110398"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87323.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aaatcgaccg gcggcaaagc gccgcgaaaa cagttggcta cgaaggcggc gcgaaaaagc
+       61 gcgcccgcca ccggaggcgt gaaaaaaccg catcgttacc gtcccggtac ggtcgctctt
+      121 cgcgaaattc gtcgctatca gaaaagtacc gaactgctca ttcgcaaatt gccgtttcaa
+      181 cgtttagtgc gcgaaattgc gcaagacttc aagaccgatc tgcgattcca aagttcagcc
+      241 gtaatggctt tgcaggaggc gagcgaagcc tatctcgtcg gcttattcga agatacaaat
+      301 ttgtgcgcta ttcacgcgaa aagagtcac
+//
+
+LOCUS       PP056503                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Isorhipis foveata histone H3 (histone) gene, partial cds.
+ACCESSION   PP056503
+VERSION     PP056503.1
+KEYWORDS    .
+SOURCE      Isorhipis foveata
+  ORGANISM  Isorhipis foveata
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Isorhipis.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Isorhipis foveata"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109376"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87322.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aagtcgacgg gaggcaaggc gccgcgaaaa cagttagcga caaaggccgc gcgtaagagc
+       61 gccccagcta ccggtggcgt caagaagccg caccgttatc gtcccggcac ggtggccctt
+      121 cgcgagatta gacgttatca gaagagcacg gagcttttga tccgcaagtt gccattccaa
+      181 cggctagtgc gagagatcgc gcaggatttc aagaccgatc tgcgttttca aagttccgcg
+      241 gtgatggccc tgcaggaggc gagcgaggcc tatctcgtcg gcctcttcga ggacaccaac
+      301 ctctgcgcga ttcacgccaa gagggtcac
+//
+
+LOCUS       PP056502                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Hylochares harmandi histone H3 (histone) gene, partial cds.
+ACCESSION   PP056502
+VERSION     PP056502.1
+KEYWORDS    .
+SOURCE      Hylochares harmandi
+  ORGANISM  Hylochares harmandi
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Hylochares.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Hylochares harmandi"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109375"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87321.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aaatcgaccg gcggtaaggc gccccgcaag cagctcgcga cgaaggccgc gagaaagagc
+       61 gcccccgcga ccggcggggt caagaagccg catcgctaca ggccggggac cgtcgccctc
+      121 cgcgagatcc gtcgctacca gaagagcacc gagctgttga tccggaagct cccttttcag
+      181 cgtctggtga gggaaatcgc gcaggacttc aagaccgacc tgcgcttcca aagttccgcg
+      241 gtgatggccc tccaagaggc gtccgaggcc tacctcgtcg gcctgttcga ggacaccaac
+      301 ttgtgcgcta tccacgcgaa acgggtcac
+//
+
+LOCUS       PP056501                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Hylis yanoi histone H3 (histone) gene, partial cds.
+ACCESSION   PP056501
+VERSION     PP056501.1
+KEYWORDS    .
+SOURCE      Hylis yanoi
+  ORGANISM  Hylis yanoi
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Hylis.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Hylis yanoi"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109374"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87320.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aagtcgaccg gcggcaaggc gccccgcaaa cagctcgcga cgaaggcggc ccgcaagagc
+       61 gcgcccgcca ccggcggcgt gaagaagccc catcgctatc ggccgggtac cgtggccctc
+      121 cgcgagatcc gccgctacca gaagagcacg gagctgctca ttcgcaagct gcccttccag
+      181 cgtctggtgc gcgagatcgc gcaggacttc aagaccgacc tgcgtttcca aagttcggcg
+      241 gtgatggccc ttcaggaggc gagcgaggcg tacctggtcg gcctcttcga ggacaccaac
+      301 ctgtgcgcga tccacgcgaa gagggtcac
+//
+
+LOCUS       PP056500                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Hylis sp. 3 JBS-2023a histone H3 (histone) gene, partial cds.
+ACCESSION   PP056500
+VERSION     PP056500.1
+KEYWORDS    .
+SOURCE      Hylis sp. 3 JBS-2023a
+  ORGANISM  Hylis sp. 3 JBS-2023a
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Hylis.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Hylis sp. 3 JBS-2023a"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109387"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87319.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aagtcgaccg gcggcaaggc gccccgcaaa cagctcgcga cgaaggcggc ccgcaagagc
+       61 gcgcccgcca ccggcggcgt gaagaagccc catcgctatc ggccgggtac cgtggccctc
+      121 cgcgagatcc gccgctacca gaagagcacg gagctgctca ttcgcaagct gcccttccag
+      181 cgtctggtgc gcgagatcgc gcaggacttc aagaccgacc tgcgtttcca aagttcggcg
+      241 gtgatggccc ttcaggaggc gagcgaggcg tacctggtcg gcctcttcga ggacaccaac
+      301 ctgtgcgcca tccacgcgaa gagggtcac
+//
+
+LOCUS       PP056499                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Hylis sp. 2 JBS-2023a histone H3 (histone) gene, partial cds.
+ACCESSION   PP056499
+VERSION     PP056499.1
+KEYWORDS    .
+SOURCE      Hylis sp. 2 JBS-2023a
+  ORGANISM  Hylis sp. 2 JBS-2023a
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Hylis.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Hylis sp. 2 JBS-2023a"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3110392"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87318.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aagtcgaccg gcggcaaggc gcctcgcaag cagctcgcga cgaaggcggc acgcaagagc
+       61 gcgccggcca ccggcggcgt caagaaaccg catcgctatc ggccgggcac cgtcgcgctc
+      121 cgcgagatcc gccgctacca gaagagcacc gagcttctca tccgcaagct gcccttccag
+      181 cgtctggtgc gcgagatcgc gcaggacttc aagaccgacc tgcgattcca gagttcggcg
+      241 gtgatggccc tccaggaggc gagcgaggcg tacctcgtcg gcctcttcga ggacacgaac
+      301 ctgtgcgcga tccacgcgaa gagggtcac
+//
+
+LOCUS       PP056498                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Hylis sp. 1 JBS-2023a histone H3 (histone) gene, partial cds.
+ACCESSION   PP056498
+VERSION     PP056498.1
+KEYWORDS    .
+SOURCE      Hylis sp. 1 JBS-2023a
+  ORGANISM  Hylis sp. 1 JBS-2023a
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Hylis.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Hylis sp. 1 JBS-2023a"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3110391"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87317.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aagtcgaccg gcggcaaggc gcctcgcaag cagctcgcga cgaaggcggc acgcaagagc
+       61 gcgccggcca ccggcggcgt caagaaaccg catcgctatc ggccgggcac cgtcgcgctc
+      121 cgcgagatcc gccgctacca gaagagcacc gagcttctca tccgcaagct gcccttccag
+      181 cgtctggtgc gcgagatcgc gcaggacttc aagaccgacc tgcgattcca gagttcggcg
+      241 gtgatggccc tccaggaggc gagcgaggcg tacctcgtcg gcctcttcga ggacacgaac
+      301 ctgtgcgcga tccacgcgaa gagggtcac
+//
+
+LOCUS       PP056497                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Dirrhagofarsus unicolor histone H3 (histone) gene, partial cds.
+ACCESSION   PP056497
+VERSION     PP056497.1
+KEYWORDS    .
+SOURCE      Dirrhagofarsus unicolor
+  ORGANISM  Dirrhagofarsus unicolor
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Dirrhagofarsus.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Dirrhagofarsus unicolor"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109383"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87316.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aaatcaaccg gtggtaaagc accgcgtaaa caattggcaa caaaagcagc tagaaaaagt
+       61 gcaccagcaa ccggtggcgt taagaaacct catcgttatc ggcctggtac ggtggcactt
+      121 cgggagattc gtcgttatca gaaaagtacc gaattactaa ttcgtaaatt accattccaa
+      181 cgtctagtaa gagagattgc tcaagacttt aagaccgatt tacgtttcca aagttctgcc
+      241 gtaatggccc tacaagaagc aagcgaagca tatttagttg gtttatttga agataccaat
+      301 ttatgtgcaa tccatgctaa gcgtgtcac
+//
+
+LOCUS       PP056496                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Dirrhagofarsus modestus histone H3 (histone) gene, partial cds.
+ACCESSION   PP056496
+VERSION     PP056496.1
+KEYWORDS    .
+SOURCE      Dirrhagofarsus modestus
+  ORGANISM  Dirrhagofarsus modestus
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Dirrhagofarsus.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Dirrhagofarsus modestus"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109380"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87315.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aaatcaaccg gtggtaaagc accgcgtaaa caattggcaa caaaagcagc tagaaaaagt
+       61 gcaccagcca ccggtggcgt taagaaaccc catcgttatc ggcctggtac ggtggcactt
+      121 cgggaaattc gtcgctatca aaaaagtacc gaattactta ttcgtaaatt accattccaa
+      181 cgtttagtaa gagaaattgc tcaagatttt aagaccgatt tacgttttca aagttctgcc
+      241 gtaatggctt tacaagaagc aagtgaagca tatttagttg gtttatttga agataccaat
+      301 ttatgtgcaa tccatgctaa acgtgtcac
+//
+
+LOCUS       PP056495                 329 bp    DNA     linear   INV 19-JAN-2025
+DEFINITION  Dirrhagofarsus lewisi histone H3 (histone) gene, partial cds.
+ACCESSION   PP056495
+VERSION     PP056495.1
+KEYWORDS    .
+SOURCE      Dirrhagofarsus lewisi
+  ORGANISM  Dirrhagofarsus lewisi
+            Eukaryota; Metazoa; Ecdysozoa; Arthropoda; Altocrustacea;
+            Allotriocarida; Hexapoda; Insecta; Pterygota; Neoptera; Eumetabola;
+            Endopterygota; Aparaglossata; Neuropteroidea; Coleoptera;
+            Polyphaga; Elateriformia; Elateroidea; Eucnemidae; Dirrhagofarsus.
+REFERENCE   1  (bases 1 to 329)
+  AUTHORS   Seung,J., Lee,S. and Lee,S.
+  TITLE     First Multi-locus Phylogeny of Melasinae (Coleoptera, Eucnemidae)
+            Primitively Evaluates the Current Classification of Eucnemidae
+  JOURNAL   Unpublished
+REFERENCE   2  (bases 1 to 329)
+  AUTHORS   Seung,J.
+  TITLE     Direct Submission
+  JOURNAL   Submitted (25-DEC-2023) College Of Agricultural And Life Sciences,
+            Seoul National University, 1, Gwanak-ro, Gwanak-gu, Seoul 08826,
+            South Korea
+COMMENT     ##Assembly-Data-START##
+            Sequencing Technology :: Sanger dideoxy sequencing
+            ##Assembly-Data-END##
+FEATURES             Location/Qualifiers
+     source          1..329
+                     /organism="Dirrhagofarsus lewisi"
+                     /mol_type="genomic DNA"
+                     /db_xref="taxon:3109379"
+     gene            <1..>329
+                     /gene="histone"
+     mRNA            <1..>329
+                     /gene="histone"
+                     /product="histone H3"
+     CDS             <1..>329
+                     /gene="histone"
+                     /note="DNA binding protein"
+                     /codon_start=1
+                     /product="histone H3"
+                     /protein_id="XMM87314.1"
+                     /translation="KSTGGKAPRKQLATKAARKSAPATGGVKKPHRYRPGTVALREIR
+                     RYQKSTELLIRKLPFQRLVREIAQDFKTDLRFQSSAVMALQEASEAYLVGLFEDTNLC
+                     AIHAKRVT"
+ORIGIN      
+        1 aaatcaaccg gtggtaaagc accgcgtaaa caattggcaa caaaagcagc tagaaaaagt
+       61 gcaccagcaa ccggtggcgt gaaaaaaccg catcgttatc ggcccggtac ggtggcactt
+      121 cgggagattc gtcgttatca aaaaagtacc gaattattaa ttcgtaaatt accatttcaa
+      181 cgtttggtaa gggaaattgc gcaagacttt aagaccgatt tacgtttcca aagttccgcc
+      241 gtaatggccc tacaagaagc aagtgaagca tatttagttg gtttatttga agatactaat
+      301 ttgtgcgcaa tccatgctaa acgtgtcac
+//
+
