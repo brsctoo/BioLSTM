@@ -1,5 +1,7 @@
 """
-Lê a sequência
+This module reads a GenBank file, extracts the relevant sequences and features, and preprocesses the data by
+injecting degenerate nucleotides according to specific rules. The processed data is then separated into training
+and testing datasets and saved to files for later use in machine learning models.
 """
 
 from Bio import SeqIO
@@ -15,12 +17,12 @@ def inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, injec
     - introns_intervals: A list of tuples representing the start and end positions of introns in the sequence.
     - injection_rate: The percentage of nucleotides to be replaced with degenerate nucleotides.
 
-    Rules (baseadas em Bush 2011, Zhao 2003):
-    - Íntrons (centro): probabilidade alta
-    - Éxon 3ª posição do códon: probabilidade média
-    - Éxon 1ª/2ª posição: probabilidade baixa
-    - Splice sites (±6 bp da borda): probabilidade zero
-    - Start codon: probabilidade zero
+    Rules (based on Bush 2011, Zhao 2003):
+    - Introns (center): high probability
+    - Exon 3rd codon position: medium probability
+    - Exon 1st/2nd position: low probability
+    - Splice sites (±6 bp from edge): zero probability
+    - Start codon: zero probability
     """
 
     TRANSITION_PAIRS = {
@@ -40,7 +42,7 @@ def inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, injec
 
     seq = list(seq)
 
-    # Marca splice sites (±6 de cada borda éxon/íntron)
+    # Marks splice sites (±6 from each exon/intron boundary)
     splice_zone = set()
     for start, end in exons_intervals:
         for i in range(max(0, start-6), min(len(seq), start+6)):
@@ -48,11 +50,11 @@ def inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, injec
         for i in range(max(0, end-6), min(len(seq), end+6)):
             splice_zone.add(i)
 
-    # Posições de éxon com sua posição no códon (0, 1, 2)
+    # Exon positions mapped to their respective codon position (0, 1, 2)
     exon_positions = {}  # pos -> codon_position (0, 1, 2)
     for start, end in exons_intervals:
         for i, pos in enumerate(range(start, end + 1)):
-            exon_positions[pos] = i % 3  # 0=1ª, 1=2ª, 2=3ª
+            exon_positions[pos] = i % 3  # 0=1st, 1=2nd, 2=3rd
 
     intron_positions = set()
     for start, end in introns_intervals:
@@ -61,7 +63,7 @@ def inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, injec
 
     for i, base in enumerate(seq):
         if base not in ['A', 'T', 'G', 'C']:
-            continue  # já é degenerada, pula
+            continue  # Already degenerate, skip
 
         if i in splice_zone:
             rate = RATES['splice_site']
@@ -98,21 +100,21 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
     for register in SeqIO.parse(genbank_input_filepath + ".gb", "genbank"):
         try:
             if not validate_register(register):
-                print(f"Pulando sequência pois não passou na verificação")
+                print(f"Skipping sequence because it failed verification")
                 continue
 
-            # Converte para string E garante maiúsculas para evitar erros ocultos
+            # Converts to string AND ensures uppercase to prevent hidden bugs
             seq = str(register.seq).upper()
 
             if len(seq) > 20000:
-                print(f"Pulando sequência de {len(seq)} bases...")
+                print(f"Skipping sequence with {len(seq)} bases...")
                 continue
 
             if seq in seen_sequences:
-                print(f"Pulando sequência pois é repetida")
+                print(f"Skipping sequence because it is a duplicate")
                 continue
 
-            # Pega o CDS primeiro
+            # Gets the CDS feature first
             cds_feature = None
             for feature in register.features:
                 if feature.type == "CDS":
@@ -120,10 +122,10 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
                     break
 
             if cds_feature is None:
-                print(f"Pulando sequência pois não tem CDS")
+                print(f"Skipping sequence because it lacks a CDS")
                 continue
 
-            # Procura o mRNA que contém o CDS
+            # Looks for the mRNA that contains the CDS
             target_feature = None
             cds_start = int(cds_feature.location.start)
             cds_end   = int(cds_feature.location.end)
@@ -136,61 +138,49 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
                         target_feature = feature
                         break
 
-            # ... (código anterior que acha o target_feature do mRNA) ...
-
             if target_feature is None:
                 target_feature = cds_feature
 
-            # ======================================================
-            # 1. O CORTE CIRÚRGICO (Matando a Armadilha do Promotor)
-            # ======================================================
             mrna_start = int(target_feature.location.start)
             mrna_end   = int(target_feature.location.end)
 
-            # Recorta EXATAMENTE o tamanho do gene (ignora os milhares de pares de bases ao redor)
+            # Crops EXACTLY the size of the gene (ignores the thousands of base pairs around it)
             cropped_seq_obj = register.seq[mrna_start:mrna_end]
 
-            # Usa o seu extractor para pegar as coordenadas brutas
+            # Uses your extractor to get raw coordinates
             exons_intervals_raw = re.make_exons_intervals_list(target_feature.location)
 
-            # Arrasta as coordenadas para o novo "Ponto Zero" (já que cortamos o começo)
+            # Shifts coordinates to the new "Point Zero" (since the start was cropped)
             exons_intervals = [[s - mrna_start, e - mrna_start] for s, e in exons_intervals_raw]
 
-            # ======================================================
-            # 2. A MÁGICA DA FITA REVERSA
-            # ======================================================
+            # 2. REVERSE STRAND
             if target_feature.location.strand == -1:
-                # Vira a fita do avesso (A vira T, C vira G, e de trás pra frente)
+                # Flips the strand inside out (A becomes T, C becomes G, and reversed)
                 seq = str(cropped_seq_obj.reverse_complement()).upper()
 
                 L = len(seq)
                 exons_intervals_rev = []
 
-                # Espelha as coordenadas para a nova fita invertida
+                # Mirrors the coordinates to the new inverted strand
                 for s, e in exons_intervals:
                     new_start = L - 1 - e
                     new_end = L - 1 - s
                     exons_intervals_rev.append([new_start, new_end])
 
-                # Como a fita virou de trás pra frente, os últimos éxons viraram os primeiros.
-                # Então, reordenamos a lista para o Python ler certinho da esquerda pra direita
+                # Since the strand was reversed, the last exons became the first ones.
+                # So we reorder the list so Python reads it correctly from left to right.
                 exons_intervals = sorted(exons_intervals_rev, key=lambda x: x[0])
             else:
-                # Se for fita positiva, é só converter pra string e seguir a vida
+                # If it is a forward strand, just convert to string and proceed
                 seq = str(cropped_seq_obj).upper()
 
-            # ======================================================
-            # 3. O ESCUDO ANTI-ALUCINAÇÃO (Single-Exon)
-            # ======================================================
-            # Agora criamos os íntrons usando a sua função
+            # 3. Single-Exon
+            # Now we create the introns using your function
             introns_intervals = re.make_introns_intervals_list(exons_intervals)
 
             if len(introns_intervals) == 0:
-                print("Pulando gene sem íntrons...")
+                print("Skipping gene without introns...")
 
-            # ======================================================
-            # SEGUE O JOGO
-            # ======================================================
             seq = inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, INJECTION_RATE)
 
             introns = re.make_introns_list(introns_intervals, seq)
@@ -209,8 +199,8 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
             data.append(sample)
 
         except Exception as e:
-            print(f"\nErro ao processar o registro {register.id}: {e}")
-            print("Pulando para o próximo...\n")
+            print(f"\nError processing record {register.id}: {e}")
+            print("Skipping to the next one...\n")
             continue
 
     return data

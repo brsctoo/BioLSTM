@@ -6,9 +6,6 @@ The data_XY is a list of tuples: [(X, Y), ...], where X is the input sequence - 
 
 import numpy as np
 from lstm_model import lstm_model, EPOCHS, BATCH_SIZE
-import os
-from keras.models import load_model
-from keras.callbacks import EarlyStopping # Important to speed up training
 
 def train_model(XY_filepath_input, result_filepath_output):
     # Load dataset (npz: X, y) with allow_pickle=True
@@ -39,18 +36,18 @@ def train_model(XY_filepath_input, result_filepath_output):
     print("Training the model...")
     print(f"Total training samples: {total}")
 
-    # --- INÍCIO DO CÁLCULO MANUAL DE PESOS ---
+    # --- START OF MANUAL CLASS WEIGHT CALCULATION ---
     total_samples = len(Y_train)
-    
-    # Contamos quantos 0s (introns) e 1s (exons) existem no treino
+
+    # Count how many 0s (introns) and 1s (exons) exist in the training set
     count_0 = np.sum(Y_train == 0)
     count_1 = np.sum(Y_train == 1)
-    
-    # Aplicamos a fórmula matemática de balanceamento (2 é o número de classes)
+
+    # Apply standard mathematical balancing formula (2 stands for the total number of target classes)
     weight_0 = total_samples / (2.0 * count_0)
     weight_1 = total_samples / (2.0 * count_1)
-    
-    pesos_dit = {0: weight_0, 1: weight_1}
+
+    class_weights = {0: weight_0, 1: weight_1}
 
     history = lstm_model.fit(
         X_train,
@@ -58,15 +55,15 @@ def train_model(XY_filepath_input, result_filepath_output):
         epochs=EPOCHS,
         batch_size=BATCH_SIZE,
         validation_data=(X_test, Y_test),
-        class_weight=pesos_dit, 
-        verbose=1
+        class_weight=class_weights,
+        verbose=1 # type: ignore
     )
 
     print("\nModel training completed.\n")
-    test_results = lstm_model.evaluate(X_test, Y_test, verbose=1)
-    print(f'\nTest results - Loss: {test_results[0]:.4f} - Accuracy: {100*test_results[1]:.2f}%\n') 
+    test_results = lstm_model.evaluate(X_test, Y_test, verbose=1) # type: ignore
+    print(f'\nTest results - Loss: {test_results[0]:.4f} - Accuracy: {100*test_results[1]:.2f}%\n')
     lstm_model.save(result_filepath_output)
-    print(" ") 
     print(" ")
     print(" ")
-    print("Histórico:", history)
+    print(" ")
+    print("History:", history)
