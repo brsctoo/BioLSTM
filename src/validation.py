@@ -1,16 +1,13 @@
 """
-Docstring for validation
+Validation module to assess the trained Bi-LSTM model performance
+on the test dataset using alignment metrics and positional metrics.
 """
 
-import os
-
-from genbank_searcher import BASE_DIR
 import modeling
 import numpy as np
 import pickle
-import random
 import keras
-from minineedle import needle, smith, core
+from minineedle import needle
 
 def smooth_predict(predict_raw, window_size=6):
     half = window_size // 2
@@ -31,9 +28,9 @@ def smooth_predict(predict_raw, window_size=6):
 
 def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_smooth):
     """
-    DEBUG EXPLÍCITO:
-    Mostra o percentual de posições marcadas como éxon (classe 1)
-    para comparar rótulo real vs predição bruta vs predição suavizada.
+    EXPLICIT DEBUG:
+    Shows the percentage of positions marked as exon (class 1)
+    to compare true label vs raw prediction vs smoothed prediction.
     """
     y_true_arr = np.asarray(y_true).reshape(-1)
     y_pred_raw_arr = np.asarray(y_pred_raw).reshape(-1)
@@ -43,29 +40,34 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     pred_raw_exon_pct = 100.0 * np.mean(y_pred_raw_arr == 1)
     pred_smooth_exon_pct = 100.0 * np.mean(y_pred_smooth_arr == 1)
 
-    print("----- DEBUG % POR POSIÇÃO (ÉXON=1) -----")
-    print(f"Amostra {sample_index}:")
-    print(f"  Real (Y==1)            : {real_exon_pct:.2f}%")
-    print(f"  Predito bruto (raw==1) : {pred_raw_exon_pct:.2f}%")
-    print(f"  Predito suavizado (==1): {pred_smooth_exon_pct:.2f}%")
+    print("----- DEBUG % PER POSITION (EXON=1) -----")
+    print(f"Sample {sample_index}:")
+    print(f"  Real (Y==1)             : {real_exon_pct:.2f}%")
+    print(f"  Predicted raw (raw==1)  : {pred_raw_exon_pct:.2f}%")
+    print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
 def validate_model(model_path, data_test):
-    model = keras.models.load_model(model_path)
-    metricas_finais = []
+    loaded_model = keras.models.load_model(model_path)
 
-    data_test_bruto = pickle.load(open(data_test, "rb"))
+    # Assert model is not None to resolve Pyright's attribute inference warning
+    if loaded_model is None:
+        raise ValueError(f"Failed to load Keras model from path: {model_path}")
+
+    final_metrics = []
+
+    raw_test_data = pickle.load(open(data_test, "rb"))
 
     data_test = []
-    for sample in data_test_bruto:
-        # Se NÃO tiver o buraco cego, adiciona na lista oficial de teste
+    for sample in raw_test_data:
+        # If it does NOT contain the blind gap, add it to the official test list
         if 'NNNNNNNNNN' not in sample["sequence"].upper():
             data_test.append(sample)
 
     print("-" * 50)
-    print(f"Amostras totais no arquivo : {len(data_test_bruto)}")
-    print(f"Amostras limpas para teste : {len(data_test)}")
-    print(f"Descartadas (com NNNNNNNNN): {len(data_test_bruto) - len(data_test)}")
+    print(f"Total samples in file      : {len(raw_test_data)}")
+    print(f"Clean samples for testing  : {len(data_test)}")
+    print(f"Discarded (with NNNNNNNNN) : {len(raw_test_data) - len(data_test)}")
     print("-" * 50)
 
     all_y_true = []
@@ -73,8 +75,8 @@ def validate_model(model_path, data_test):
 
     count = 0
     for sample in data_test:
-        count +=1
-        print("Sequencia:", count, "Progresso:", 100*count/len(data_test), "%")
+        count += 1
+        print("Sequence:", count, "Progress:", 100 * count / len(data_test), "%")
 
         tagged_sequence = modeling.tag_positions(sample) # returns something like: [0,0,1,0,0...]
 
@@ -90,20 +92,20 @@ def validate_model(model_path, data_test):
         X = np.array(X)
         Y = np.array(Y)
 
-        predict_raw = (model.predict(X) > 0.5).astype("int32")
-        predict_suavized = smooth_predict(predict_raw, window_size=6)
+        predict_raw = (loaded_model.predict(X) > 0.5).astype("int32") # type: ignore
+        predict_smoothed = smooth_predict(predict_raw, window_size=6)
 
-        # ===== BLOCO DE DEBUG SOLICITADO: % por posição =====
-        print_positional_prediction_ratio(count, Y, predict_raw, predict_suavized)
+        # ===== REQUESTED DEBUG BLOCK: % per position =====
+        print_positional_prediction_ratio(count, Y, predict_raw, predict_smoothed)
 
-        # linha que faltou
+        # Appending data for global verification metrics
         all_y_true.extend(Y.tolist())
-        all_y_pred.extend(predict_suavized)
+        all_y_pred.extend(predict_smoothed)
 
         # Final sequence of predicted exons and introns
         final_seq = []
-        for i in range(len(predict_suavized)):
-            if predict_suavized[i] == 1:
+        for i in range(len(predict_smoothed)):
+            if predict_smoothed[i] == 1:
                 final_seq.append(sample["sequence"][i])
 
         # Sequence of true exons and introns
@@ -112,65 +114,65 @@ def validate_model(model_path, data_test):
             if Y[i] == 1:
                 true_final_seq.append(sample["sequence"][i])
 
-        if(len(final_seq) != 0 and len(true_final_seq) != 0 ):
-            aligment = needle.NeedlemanWunsch("".join(final_seq), "".join(true_final_seq))
-            aligment.align()
+        if len(final_seq) != 0 and len(true_final_seq) != 0:
+            alignment = needle.NeedlemanWunsch(final_seq, true_final_seq)
+            alignment.align()
 
-            # 3. Pegamos as sequências alinhadas (com os gaps inseridos)
-            seq1_aligned, seq2_aligned = aligment.get_aligned_sequences()
+            # Get the aligned sequences (with inserted gaps)
+            seq1_aligned, seq2_aligned = alignment.get_aligned_sequences()
 
-            # 4. Calculamos a Identidade (Matches / Tamanho Total do Alinhamento)
+            # Calculate Identity (Matches / Total Alignment Length)
             matches = sum(1 for a, b in zip(seq1_aligned, seq2_aligned) if a == b)
-            identidade = matches / len(seq1_aligned) # Retorna um valor perfeito entre 0.0 e 1.0
+            identity = matches / len(seq1_aligned) # Returns a clean value between 0.0 and 1.0
 
-            print(f"Identidade de Alinhamento: {identidade:.4f}")
-            metricas_finais.append([identidade])
+            print(f"Alignment Identity: {identity:.4f}")
+            final_metrics.append([identity])
 
-            # --- INJEÇÃO DO RAIO-X DE ERRO ---
-            # Se a identidade foi menor que 60%, imprime o raio-x visual
-            if identidade < 0.60:
-                print(f"\n[ALERTA DE ERRO] Investigando falha (Identidade: {identidade*100:.1f}%)")
-                print("Sequência Original: ", sample["sequence"])
-                print("Sequência Prevista: ", "".join(final_seq))
-                print("Sequência Real:    ", "".join(true_final_seq))
-            # --- FIM DO RAIO-X ---
+            # --- ERROR INSPECTION X-RAY ---
+            # If identity is below 60%, print visual x-ray details
+            if identity < 0.60:
+                print(f"\n[ERROR ALERT] Investigating failure (Identity: {identity*100:.1f}%)")
+                print("Original Sequence : ", sample["sequence"])
+                print("Predicted Sequence: ", "".join(final_seq))
+                print("Real Sequence     : ", "".join(true_final_seq))
+            # --- END OF X-RAY ---
 
-    print(metricas_finais)
+    print(final_metrics)
 
-    q0,q1,q2,q3,q4,q5,q6,q7,q8,q9 = 0,0,0,0,0,0,0,0,0,0
+    q0, q1, q2, q3, q4, q5, q6, q7, q8, q9 = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     total = 0
-    for metrica in metricas_finais:
-        # Removemos o abs(). O valor agora é a Identidade real (ex: 0.85 para 85% de match)
-        valor_identidade = metrica[0]
-        total += valor_identidade
+    for metric in final_metrics:
+        # Removed abs(). The value is now the real Identity (e.g., 0.85 for an 85% match)
+        identity_value = metric[0]
+        total += identity_value
 
-        # Agora essa separação fará sentido real para avaliar o modelo!
-        if valor_identidade <= 0.1:
+        # Splitting intervals based on alignment scores
+        if identity_value <= 0.1:
             q0 += 1
-        elif valor_identidade <= 0.2:
+        elif identity_value <= 0.2:
             q1 += 1
-        elif valor_identidade <= 0.3:
+        elif identity_value <= 0.3:
             q2 += 1
-        elif valor_identidade <= 0.4:
+        elif identity_value <= 0.4:
             q3 += 1
-        elif valor_identidade <= 0.5:
+        elif identity_value <= 0.5:
             q4 += 1
-        elif valor_identidade <= 0.6:
+        elif identity_value <= 0.6:
             q5 += 1
-        elif valor_identidade <= 0.7:
+        elif identity_value <= 0.7:
             q6 += 1
-        elif valor_identidade <= 0.8:
+        elif identity_value <= 0.8:
             q7 += 1
-        elif valor_identidade <= 0.9:
+        elif identity_value <= 0.9:
             q8 += 1
         else:
             q9 += 1
 
-    media = total / len(metricas_finais)
+    mean_identity = total / len(final_metrics)
 
-    print("\n--- RESULTADOS GERAIS ---")
-    print("Total de amostras: ", len(metricas_finais))
-    print("IDENTIDADE MÉDIA DO ALINHAMENTO: {:.2f}%".format(media * 100))
+    print("\n--- GENERAL RESULTS ---")
+    print("Total samples: ", len(final_metrics))
+    print("MEAN ALIGNMENT IDENTITY: {:.2f}%".format(mean_identity * 100))
     print(" 0-10%:   ", q0)
     print(" 10-20%:  ", q1)
     print(" 20-30%:  ", q2)
@@ -183,35 +185,36 @@ def validate_model(model_path, data_test):
     print(" 90-100%: ", q9)
     print("\n")
 
-    # ── Métrica posicional via Keras ───────────────────────────────
+    # ── Positional Metric via Keras ───────────────────────────────
     y_true_t = np.array(all_y_true, dtype=np.float32)
     y_pred_t = np.array(all_y_pred, dtype=np.float32)
 
-    metricas_keras = {
-        "Acurácia"  : keras.metrics.BinaryAccuracy(),
-        "Precisão"  : keras.metrics.Precision(),
-        "Recall"    : keras.metrics.Recall(),
-        "AUC"       : keras.metrics.AUC(),
-        "TP"        : keras.metrics.TruePositives(),
-        "TN"        : keras.metrics.TrueNegatives(),
-        "FP"        : keras.metrics.FalsePositives(),
-        "FN"        : keras.metrics.FalseNegatives(),
+    keras_metrics = {
+        "Accuracy" : keras.metrics.BinaryAccuracy(),
+        "Precision": keras.metrics.Precision(),
+        "Recall"   : keras.metrics.Recall(),
+        "AUC"      : keras.metrics.AUC(),
+        "TP"       : keras.metrics.TruePositives(),
+        "TN"       : keras.metrics.TrueNegatives(),
+        "FP"       : keras.metrics.FalsePositives(),
+        "FN"       : keras.metrics.FalseNegatives(),
     }
 
-    for nome, metrica in metricas_keras.items():
-        metrica.update_state(y_true_t, y_pred_t)
+    for name, metric in keras_metrics.items():
+        metric.update_state(y_true_t, y_pred_t)
 
-    tp = metricas_keras["TP"].result().numpy()
-    fp = metricas_keras["FP"].result().numpy()
-    fn = metricas_keras["FN"].result().numpy()
+    tp = keras_metrics["TP"].result().numpy()
+    fp = keras_metrics["FP"].result().numpy()
+    fn = keras_metrics["FN"].result().numpy()
 
     print("═" * 50)
-    print("MÉTRICA POSICIONAL (limites de splice site)")
+    print("POSITIONAL METRIC (splice site boundaries)")
     print("═" * 50)
-    for nome, metrica in metricas_keras.items():
-        valor = metrica.result().numpy()
-        sufixo = "%" if nome not in ("TP","TN","FP","FN") else ""
-        fator  = 100  if nome not in ("TP","TN","FP","FN") else 1
-        print(f"  {nome:10s}: {valor*fator:.2f}{sufixo}")
-    f1 = 2*tp / (2*tp + fp + fn)
+    for name, metric in keras_metrics.items():
+        value = metric.result().numpy()
+        suffix = "%" if name not in ("TP", "TN", "FP", "FN") else ""
+        factor = 100 if name not in ("TP", "TN", "FP", "FN") else 1
+        print(f"  {name:10s}: {value*factor:.2f}{suffix}")
+
+    f1 = 2 * tp / (2 * tp + fp + fn)
     print(f"  {'F1':10s}: {f1*100:.2f}%")

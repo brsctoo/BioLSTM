@@ -4,7 +4,7 @@ Usage: python fetch_test_dataset.py --query "your query here" --output "output_n
 """
 import os
 import argparse
-from Bio import Entrez, SeqIO
+from Bio import Entrez
 import genbank_reader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,22 +14,25 @@ Entrez.email = "bcominscheffel@email.com"
 def fetch_genbank(query, output_filepath, max_records=500):
     """Fetch records from GenBank and save as .gb file."""
 
-    print(f"Buscando no GenBank com a query:\n{query}\n")
+    print(f"Searching GenBank with the following query:\n{query}\n")
 
-    # Busca os IDs
+    # Fetch IDs
     handle = Entrez.esearch(db="nucleotide", term=query, retmax=max_records)
     record = Entrez.read(handle)
     handle.close()
 
-    ids = record["IdList"]
-    print(f"Encontrados {len(ids)} registros.")
+    # Cast to standard string list to resolve Pyright's reportIndexIssue on IntegerElement
+    # Ensure record behaves as a dictionary and extract IDs safely
+    record_dict = dict(record) if isinstance(record, dict) else {}
+    ids = [str(id_item) for id_item in record_dict.get("IdList", [])]
+    print(f"Found {len(ids)} records.")
 
     if not ids:
-        print("Nenhum registro encontrado. Verifique a query.")
+        print("No records found. Please check your query.")
         return False
 
-    # Baixa os registros em lote
-    print("Baixando registros...")
+    # Download records in batch
+    print("Downloading records...")
     handle = Entrez.efetch(db="nucleotide", id=ids, rettype="gb", retmode="text")
 
     gb_path = output_filepath + ".gb"
@@ -37,7 +40,7 @@ def fetch_genbank(query, output_filepath, max_records=500):
         f.write(handle.read())
     handle.close()
 
-    print(f"Arquivo salvo em: {gb_path}")
+    print(f"File saved to: {gb_path}")
     return True
 
 def fetch_and_preprocess(query, output_name, max_records=500, injection_rate=0.0):
@@ -46,32 +49,32 @@ def fetch_and_preprocess(query, output_name, max_records=500, injection_rate=0.0
     output_filepath = os.path.join(BASE_DIR, "../assets/genbank_data", output_name)
     mod1_filepath = os.path.join(BASE_DIR, "../assets/processed_data/mod1", output_name)
 
-    # 1. Baixa do GenBank
+    # 1. Download from GenBank
     success = fetch_genbank(query, output_filepath, max_records)
     if not success:
         return
 
-    # 2. Preprocessa (igual ao pipeline normal)
-    print("\nPreprocessando...")
+    # 2. Preprocess (same as the standard pipeline)
+    print("\nPreprocessing...")
     data = genbank_reader.preprocess_genbank_file(output_filepath, injection_rate)
-    print(f"Total de amostras processadas: {len(data)}")
+    print(f"Total samples processed: {len(data)}")
 
     if not data:
-        print("Nenhuma amostra válida após preprocessamento.")
+        print("No valid samples remaining after preprocessing.")
         return
 
-    # 3. Salva tudo como "test" — sem separar train/test
+    # 3. Save everything as "test" — without splitting into train/test
     output_path = mod1_filepath + "_test.mod1"
     genbank_reader.save_dataset_to_file(output_path, data)
-    print(f"\nDataset de teste salvo em: {output_path}")
-    print("Pronto! Use validate_pipeline() apontando para esse arquivo.")
+    print(f"\nTest dataset saved to: {output_path}")
+    print("Done! Use validate_pipeline() pointing to this file.")
 
 def main():
-    parser = argparse.ArgumentParser(description="Fetch e preprocessa dataset do GenBank para teste")
-    parser.add_argument("--query",   required=True,  help="Query do GenBank")
-    parser.add_argument("--output",  required=True,  help="Nome do arquivo de saída (sem extensão)")
-    parser.add_argument("--max",     type=int, default=500, help="Máximo de registros a baixar (default: 500)")
-    parser.add_argument("--injection_rate", type=float, default=0.0, help="Taxa de injeção de bases degeneradas (default: 0.0)")
+    parser = argparse.ArgumentParser(description="Fetch and preprocess GenBank dataset for testing")
+    parser.add_argument("--query",   required=True,  help="GenBank search query")
+    parser.add_argument("--output",  required=True,  help="Output file name (without extension)")
+    parser.add_argument("--max",     type=int, default=500, help="Maximum number of records to download (default: 500)")
+    parser.add_argument("--injection_rate", type=float, default=0.0, help="Degenerate nucleotide injection rate (default: 0.0)")
     args = parser.parse_args()
 
     fetch_and_preprocess(args.query, args.output, args.max, args.injection_rate)

@@ -1,17 +1,17 @@
 """
 The script creates the LSTM model for sequence classification.
 
-It will use expecific parameters for the model architecture.
+It will use specific parameters for the model architecture.
 """
+
 import tensorflow as tf
-from tensorflow import keras
 from keras.layers import (
     Conv1D, MaxPooling1D, BatchNormalization,
     Bidirectional, LSTM, Dense, Dropout, Input
 )
-from keras.models import Model, Sequential
+from keras.models import Model
 from keras.optimizers import Adam
-from keras.losses import BinaryFocalCrossentropy  # trocado
+from keras.losses import BinaryFocalCrossentropy  # swapped
 
 
 # Define model parameters
@@ -26,7 +26,7 @@ LEARNING_RATE = 5e-4
 VALIDATION_SPLIT = 0.2
 WINDOWS_SIZE = 180
 
-LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0)  # trocado
+LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0)  # swapped
 OPTIMIZER = Adam(learning_rate=LEARNING_RATE)
 
 METRICS = [
@@ -40,49 +40,28 @@ METRICS = [
     tf.keras.metrics.AUC(name='auc')
 ]
 
-"""
-def create_model():
-    lstm_model = Sequential([
-        keras.Input(shape=(60,4)), # 60 linhas (tamanho da sequência) e 4 colunas (one-hot encoding de A,T,G,C)
-        Bidirectional(LSTM(LSTM_UNITS)),
-
-        Dense(32, activation="relu"),
-        Dropout(0.3),
-
-        Dense(1, activation="sigmoid")
-    ])
-
-    lstm_model.compile(
-        optimizer=OPTIMIZER,
-        loss=LOSS_FUNCTION,
-        metrics=METRICS
-    )
-
-    return lstm_model
-"""
-
 def create_model():
     inp = Input(shape=(WINDOWS_SIZE, 4))
 
-    # --- Bloco 0: motivos muito curtos (início de códon, variações GT-AG) ---
+    # --- Block 0: very short motifs (codon start, GT-AG variations) ---
     x = Conv1D(filters=32, kernel_size=3, padding='same', activation='relu')(inp)
     x = BatchNormalization()(x)
 
-    # --- Bloco 1: motivos curtos (codons, GT-AG) ---
+    # --- Block 1: short motifs (codons, GT-AG) ---
     x = Conv1D(filters=64, kernel_size=8, padding='same', activation='relu')(x)
     x = BatchNormalization()(x)
 
-    # --- Bloco 2: motivos médios (polypyrimidine tract, branch point) ---
+    # --- Block 2: medium motifs (polypyrimidine tract, branch point) ---
     x = Conv1D(filters=128, kernel_size=16, padding='same', activation='relu')(x)
     x = BatchNormalization()(x)
     x = MaxPooling1D(pool_size=2)(x)
     x = Dropout(0.2)(x)
 
-    # --- BiLSTM: contexto direcional longo ---
+    # --- BiLSTM: long directional context ---
     x = Bidirectional(LSTM(64, return_sequences=False))(x)
     x = Dropout(0.3)(x)
 
-    # --- Classificador ---
+    # --- Classifier ---
     x = Dense(32, activation='relu')(x)
     x = Dropout(0.3)(x)
     out = Dense(1, activation='sigmoid')(x)
@@ -91,7 +70,7 @@ def create_model():
 
     model.compile(
         optimizer=Adam(learning_rate=3e-4),
-        loss=LOSS_FUNCTION,  # agora usa a variável, consistente com o resto
+        loss=LOSS_FUNCTION,  # now uses the variable, consistent with the rest
         metrics=METRICS
     )
 
