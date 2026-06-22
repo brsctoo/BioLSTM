@@ -56,11 +56,11 @@ def train_model(XY_filepath_input, result_filepath_output):
         batch_size=BATCH_SIZE,
         validation_data=(X_test, Y_test),
         class_weight=class_weights,
-        verbose=1 # type: ignore
+        verbose=2 # type: ignore
     )
 
     print("\nModel training completed.\n")
-    test_results = lstm_model.evaluate(X_test, Y_test, verbose=1) # type: ignore
+    test_results = lstm_model.evaluate(X_test, Y_test, verbose=2) # type: ignore
     print(f'\nTest results - Loss: {test_results[0]:.4f} - Accuracy: {100*test_results[1]:.2f}%\n')
     lstm_model.save(result_filepath_output)
     print(" ")

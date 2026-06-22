@@ -130,14 +130,14 @@ def validate_model(model_path, data_test):
 
             # --- ERROR INSPECTION X-RAY ---
             # If identity is below 60%, print visual x-ray details
-            if identity < 0.60:
-                print(f"\n[ERROR ALERT] Investigating failure (Identity: {identity*100:.1f}%)")
-                print("Original Sequence : ", sample["sequence"])
-                print("Predicted Sequence: ", "".join(final_seq))
-                print("Real Sequence     : ", "".join(true_final_seq))
+            # if identity < 0.60:
+                # print(f"\n[ERROR ALERT] Investigating failure (Identity: {identity*100:.1f}%)")
+                # print("Original Sequence : ", sample["sequence"])
+                # print("Predicted Sequence: ", "".join(final_seq))
+                # print("Real Sequence     : ", "".join(true_final_seq))
             # --- END OF X-RAY ---
 
-    print(final_metrics)
+    # print(final_metrics)
 
     q0, q1, q2, q3, q4, q5, q6, q7, q8, q9 = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     total = 0

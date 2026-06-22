@@ -1,8 +1,3 @@
-"""
-Script with only one function, pipeline(), that executes the entire pipeline of data loading, preprocessing and model training.
-01 - genbank_reader.py: contains functions to read and preprocess the GenBank file, including validation of records, separation of train and test datasets, and saving the processed data to files.
-"""
-
 import os
 import genbank_searcher
 import genbank_reader
@@ -18,8 +13,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MAX_RECORDS = 5000
 BATCH_SIZE = 50
 MAX_PER_SPECIES = 400
-MAX_GENERAL = 2000  # Quantity of records from the general query
-MAX_HOUSEKEEPING = 2000  # Quantity of records from the housekeeping gene query
+MAX_GENERAL = 2000
+MAX_HOUSEKEEPING = 2000
 
 QUERY_GENERAL = (
     '(Fungi[Organism] OR Metazoa[Organism]) '
@@ -45,24 +40,18 @@ QUERY_HOUSEKEEPING = (
 
 # -------------------------------------------------
 
-GB_FILE_NAME = "all_proteins" # Name of the .gb archive to be created
+DEFAULT_INJECTION_RATE = 0.0
+DEFAULT_NAME = "actin_fungi"
+
+GB_FILE_NAME = "all_proteins"
 OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb")
 
-# For injection rate, 100% is like 33% of the bases being replaced by degenerate nucleotides, 50% is like 16.5%, and so on.
-INJECTION_RATE = 0.0
-
-# Name of archive .gb you want to use
-GB_NAME = "actin_fungi"
-
-# Name of the archive after processed
-NAME_PROCESSED_GB = "data_all_proteins"
-
-NAME_MODEL = "final_model_2"
-
-genbank_data_filepath_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_NAME}")
-mod1_filepath_output = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{NAME_PROCESSED_GB}")
-mod2_filepath_output = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/{NAME_PROCESSED_GB}.npz")
-result_filepath_output = os.path.join(BASE_DIR, f"../assets/result/{NAME_MODEL}.h5")
+def get_output_paths(name):
+    genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{name}")
+    mod1 = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
+    mod2 = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
+    result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
+    return genbank_input, mod1, mod2, result
 
 def search_data_pipeline():
     QUERY_to_print = QUERY_GENERAL.replace(' AND ', '\nAND ')
@@ -71,50 +60,46 @@ def search_data_pipeline():
     print(f"And searching records in GenBank with HOUSEKEEPING QUERY: \n {QUERY_housekeeping_to_print}")
     genbank_searcher.main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
 
-def create_train_test_files():
-    # Use the genbank_data to create the mod1 data, which is the preprocessed data ready for modeling
-    # .gb file → mod1 (train and test)
+def create_train_test_files(injection_rate, name):
+    genbank_input, mod1, mod2, _ = get_output_paths(name)
     print("Starting the training pipeline...")
-    print("Injection rate for degenerate nucleotides: ", INJECTION_RATE)
-    genbank_reader.save_preprocessed_genbank_file(genbank_data_filepath_input, mod1_filepath_output, INJECTION_RATE)
+    print("Injection rate for degenerate nucleotides: ", injection_rate)
+    genbank_reader.save_preprocessed_genbank_file(genbank_input, mod1, injection_rate)
+    modeling.modeling_train_data(mod1 + "_train.mod1", mod2)
 
-    # Use the mod1 train data to create the mod2 data, which is the X and y arrays ready for model training
-    # .mod1 train → mod2 (X and y)
-    modeling.modeling_train_data(mod1_filepath_output + "_train.mod1", mod2_filepath_output)
-    return None
+def train_pipeline(injection_rate, name):
+    _, mod1, mod2, result = get_output_paths(name)
+    create_train_test_files(injection_rate, name)
+    train_model.train_model(mod2, result)
 
-def train_pipeline():
-    create_train_test_files()
+def validate_pipeline(name):
+    _, mod1, _, result = get_output_paths(name)
+    print(f"Starting the validation pipeline with: \n File {mod1.split('/')[-1]}_test.mod1 \n Model {result.split('/')[-1]}...")
+    validation.validate_model(result, mod1 + "_test.mod1")
 
-    # Use the mod2 data to train the model and save it for later use in validation.py
-    # mod2 (X and y) → h5 model
-    train_model.train_model(mod2_filepath_output, result_filepath_output)
-
-    return None
-
-def validate_pipeline():
-    # Use the model trained and the test data to validate the model and print the final metrics
-    # h5 model + mod1 test → metric
-    print(f"Starting the validation pipeline with: \n File {mod1_filepath_output.split('/')[-1]}_test.mod1 \n Model {result_filepath_output.split('/')[-1]}...")
-    validation.validate_model(result_filepath_output, mod1_filepath_output + "_test.mod1")
-
-def validate_specific_dataset():
-    # Use to validate a specific dataset that you want
+def validate_specific_dataset(name):
+    _, _, _, result = get_output_paths(name)
     specific_dataset = input("Enter the name of the dataset: ")
     specific_dataset = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{specific_dataset}")
-    print(f"Starting the validation pipeline with: \n File {specific_dataset.split('/')[-1]}.mod1 \n Model {result_filepath_output.split('/')[-1]}...")
-    validation.validate_model(result_filepath_output, specific_dataset + ".mod1")
+    print(f"Starting the validation pipeline with: \n File {specific_dataset.split('/')[-1]}.mod1 \n Model {result.split('/')[-1]}...")
+    validation.validate_model(result, specific_dataset + ".mod1")
 
 def main():
     parser = argparse.ArgumentParser(description="Bi-LSTM Pipeline for Intron/Exon Identification")
 
-    # Optional argument: Operational mode
     parser.add_argument("mode", nargs='?', choices=["train", "test", "full"],
-    help="Choose operation mode: train (train model), test (validate model) or full (both)")
+        help="Choose operation mode: train, test or full")
+
+    parser.add_argument("--injection-rate", type=float, default=DEFAULT_INJECTION_RATE,
+        help="Degenerate nucleotide injection rate (e.g. 0.5 for 50%%). Default: 0.0")
+
+    parser.add_argument("--name", type=str, default=DEFAULT_NAME,
+        help="Experiment name, used in output files (e.g. actin_fungi_rate50). Default: actin_fungi")
 
     args = parser.parse_args()
+    injection_rate = args.injection_rate
+    name = args.name
 
-    # If no mode was provided, show the interactive menu
     if args.mode is None:
         print("\n" + "="*50)
         print("Bi-LSTM Pipeline for Intron/Exon Identification")
@@ -127,6 +112,8 @@ def main():
         print("4 - Validate specific dataset")
         print("5 - Create train and test files")
         print("="*50)
+        print(f"\nInjection rate: {injection_rate} (use --injection-rate to change)")
+        print(f"Experiment name: {name} (use --name to change)")
 
         choice = input("\nEnter the option number (0/1/2/3/4/5): ").strip()
 
@@ -147,16 +134,16 @@ def main():
     if args.mode == "search_data":
         search_data_pipeline()
     elif args.mode == "train":
-        train_pipeline()
+        train_pipeline(injection_rate, name)
     elif args.mode == "test":
-        validate_pipeline()
+        validate_pipeline(name)
     elif args.mode == "full":
-        train_pipeline()
-        validate_pipeline()
+        train_pipeline(injection_rate, name)
+        validate_pipeline(name)
     elif args.mode == "validate_specific_dataset":
-        validate_specific_dataset()
+        validate_specific_dataset(name)
     elif args.mode == "create_train_test_files":
-        create_train_test_files()
+        create_train_test_files(injection_rate, name)
 
 if __name__ == "__main__":
     main()
