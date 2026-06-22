@@ -258,4 +258,8 @@ def modeling_train_data(data_filepath_input, XY_filepath_output):
     print("Data processing pipeline completed successfully!")
     print("Degenerate nucleotides count: ", degenerate_bases_count)
     print("Total sequence bases count: ", total_bases_count)
-    print("Ratio of degenerate nucleotides: ", (degenerate_bases_count / total_bases_count) * 100, "%")
+
+    ratio_degenerate_nucleotides = (degenerate_bases_count / total_bases_count) * 100
+    print("Ratio of degenerate nucleotides: ", ratio_degenerate_nucleotides, "%")
+
+    return ratio_degenerate_nucleotides

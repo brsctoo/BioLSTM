@@ -100,18 +100,18 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
     for register in SeqIO.parse(genbank_input_filepath + ".gb", "genbank"):
         try:
             if not validate_register(register):
-                print(f"Skipping sequence because it failed verification")
+                # print("Skipping sequence because it failed verification")
                 continue
 
             # Converts to string AND ensures uppercase to prevent hidden bugs
             seq = str(register.seq).upper()
 
             if len(seq) > 20000:
-                print(f"Skipping sequence with {len(seq)} bases...")
+                # print(f"Skipping sequence with {len(seq)} bases...")
                 continue
 
             if seq in seen_sequences:
-                print(f"Skipping sequence because it is a duplicate")
+                # print("Skipping sequence because it is a duplicate")
                 continue
 
             # Gets the CDS feature first
@@ -122,7 +122,7 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
                     break
 
             if cds_feature is None:
-                print(f"Skipping sequence because it lacks a CDS")
+                # print("Skipping sequence because it lacks a CDS")
                 continue
 
             # Looks for the mRNA that contains the CDS
@@ -178,9 +178,6 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
             # Now we create the introns using your function
             introns_intervals = re.make_introns_intervals_list(exons_intervals)
 
-            if len(introns_intervals) == 0:
-                print("Skipping gene without introns...")
-
             seq = inject_degenerate_nucleotides(seq, exons_intervals, introns_intervals, INJECTION_RATE)
 
             introns = re.make_introns_list(introns_intervals, seq)
@@ -199,8 +196,8 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE):
             data.append(sample)
 
         except Exception as e:
-            print(f"\nError processing record {register.id}: {e}")
-            print("Skipping to the next one...\n")
+            # print(f"\nError processing record {register.id}: {e}")
+            # print("Skipping to the next one...\n")
             continue
 
     return data
