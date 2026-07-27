@@ -1,52 +1,44 @@
 """
-Search for data on GenBank using the NCBI API
-
-The script combines results from a general query and a housekeeping gene query, ensuring diversity by limiting
-the number of records per species. The results are saved in a GenBank format file, and the script includes progress
-updates and a safety check to stop after reaching a certain number of diversified records.
+Search for highly diverse, random data on GenBank using the NCBI API.
 """
 
 import os
 import random
 import time
 from typing import cast
-
 from Bio import Entrez, SeqIO
 
 Entrez.email = "bcominscheffel@gmail.com"
 
-# Configuration of search parameters
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
 def main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE):
-    search_data(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
+    search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, OUTPUT_FILE)
 
-def search_data(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE):
-    """Search for data on GenBank using the NCBI API and save results in a GenBank format file."""
+def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, OUTPUT_FILE):
+    print("Searching GenBank for a highly diverse random dataset...")
 
-    print("Searching GenBank genes...")
-
-    # Search general query
-    handle = Entrez.esearch(db="nucleotide", term=QUERY_GENERAL, retmax=MAX_GENERAL)
-
-    result = cast(dict, Entrez.read(handle))  # Read the result of the search query -> Object DictElement
-    ids_general = result["IdList"]  # Get the list of IDs from the general query
-
+    handle = Entrez.esearch(db="nucleotide", term=QUERY_GENERAL, retmax=0)
+    total_count = int(Entrez.read(handle)["Count"])
     handle.close()
-    print(f"{len(ids_general)} IDs of general Query.")
 
-    # Search housekeeping gene query
-    handle = Entrez.esearch(db="nucleotide", term=QUERY_HOUSEKEEPING, retmax=MAX_HOUSEKEEPING)
-    result = cast(dict, Entrez.read(handle))  # Use cast to explicitly tell the type of result, which is a dictionary
-    ids_housekeeping = result["IdList"]  # Get the list of IDs from the general query
+    print(f"Total matching records in GenBank: {total_count}")
+
+    if total_count == 0:
+        print("Erro: Nenhuma sequência encontrada. Verifique a query.")
+        return
+
+    pool_size = MAX_GENERAL
+    max_start = max(0, total_count - pool_size)
+    random_start = random.randint(0, max_start)
+
+    print(f"Fetching a random pool of {pool_size} IDs starting from offset {random_start}...")
+
+    handle = Entrez.esearch(db="nucleotide", term=QUERY_GENERAL, retstart=random_start, retmax=pool_size)
+    result = cast(dict, Entrez.read(handle))
+    ids = result["IdList"]
     handle.close()
-    print(f"{len(ids_housekeeping)} IDs of housekeeping query.")
 
-    # Combine and remove duplicates
-    seen = set()
-    ids = [x for x in ids_general + ids_housekeeping if not (x in seen or seen.add(x))]
     random.shuffle(ids)
-    print(f"Total unique after combining: {len(ids)} IDs.")
+    print(f"Total IDs to process: {len(ids)}.")
 
     print("Passing through the diversity filter...")
     especies_count = {}
@@ -57,12 +49,9 @@ def search_data(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_
             batch = ids[i : i + BATCH_SIZE]
 
             fetch_handle = Entrez.efetch(db="nucleotide", id=batch, rettype="gb", retmode="text")
-
-            # Read the batch using Bio.SeqIO
             records = SeqIO.parse(fetch_handle, "genbank")
 
             for record in records:
-                # Determine the species of the record (using "organism" annotation, or "Desconhecida" if not available)
                 especie = record.annotations.get("organism", "Desconhecida")
 
                 if especie not in especies_count:
@@ -74,10 +63,9 @@ def search_data(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_
                     total_saves += 1
 
             fetch_handle.close()
-            print(f"Batch processed. Records saved in the current file: {total_saves}")
-            time.sleep(0.5)  # Avoid hitting the server too hard
+            print(f"Batch processed. Records saved so far: {total_saves}/{MAX_RECORDS}")
+            time.sleep(1)
 
-            # Safety limit: if we already reached MAX_RECORDS diversified records, we can stop to avoid unnecessary downloads
             if total_saves >= MAX_RECORDS:
                 print(f"Meta of {MAX_RECORDS} diversified records reached. Stopping download.")
                 break

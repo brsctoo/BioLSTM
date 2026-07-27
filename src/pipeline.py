@@ -129,42 +129,14 @@ import validation
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # -------- Genbank Search Configuration -----------
-INCLUDE_PLANTAE_IN_TRAINING = True
-
-MAX_RECORDS = 5000
+MAX_RECORDS = 1500
 BATCH_SIZE = 50
-MAX_PER_SPECIES = 400
-MAX_GENERAL = 3000
-MAX_HOUSEKEEPING = 1000
+MAX_PER_SPECIES = 50  # Força alta diversidade (mínimo de 50 espécies diferentes)
+MAX_GENERAL = 500000    # Tamanho do "pool" aleatório que vamos baixar os IDs
+MAX_HOUSEKEEPING = 0   # Ignorado na nova abordagem
 
-_ORGANISM_SCOPE = (
-    "(Fungi[Organism] OR Metazoa[Organism]" +
-    (" OR Plantae[Organism])" if INCLUDE_PLANTAE_IN_TRAINING else ")")
-)
-
-QUERY_GENERAL = (
-    f'{_ORGANISM_SCOPE} '
-    'AND biomol_genomic[PROP] '
-    'AND "complete cds"[Title] '
-    'AND 200:15000[Sequence Length] '
-    'NOT "whole genome"[Title] NOT chromosome[Title] NOT wgs[Keyword] '
-    'NOT "PREDICTED"[Title] '
-    'NOT mitochondrion[All Fields] NOT mitochondrial[All Fields] '
-    'NOT chloroplast[All Fields] NOT plastid[All Fields]'
-)
-
-QUERY_HOUSEKEEPING = (
-    '(TEF1-alpha[Gene] OR actin[Gene] OR tubulin[Gene]) '
-    'AND Eukaryota[Organism] '
-    'AND ("complete cds"[Title] OR "partial cds"[Title]) '
-    'NOT WGS[Keyword] '
-    'NOT genome[Title] '
-    'NOT contig[Title] '
-    'NOT scaffold[Title] '
-    'NOT mitochondrion[All Fields] '
-    'NOT chloroplast[All Fields]'
-)
-
+QUERY_GENERAL = '"exon"[Feature key] AND "intron"[Feature key] AND biomol_genomic[PROP]'
+QUERY_HOUSEKEEPING = '' # Não será mais utilizado
 # -------------------------------------------------
 
 DEFAULT_INJECTION_RATE = 0.0
@@ -236,7 +208,6 @@ def save_run_metadata(name, injection_rate, injection_mode, ratio_degenerate, in
         f.write("\n".join(lines) + "\n")
     print(f"Run metadata saved to: {txt_filepath}")
 
-
 def search_data_pipeline():
     query_to_print = QUERY_GENERAL.replace(' AND ', '\nAND ')
     query_housekeeping_to_print = QUERY_HOUSEKEEPING.replace(' AND ', '\nAND ')
@@ -246,7 +217,6 @@ def search_data_pipeline():
     genbank_searcher.main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE,
                            MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
     log_stage("SEARCH — DONE.")
-
 
 def create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs):
     genbank_input, mod1, mod2, _ = get_output_paths(name)

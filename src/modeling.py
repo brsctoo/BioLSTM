@@ -67,7 +67,7 @@ def tag_positions(sample) -> list[int]:
 
     return tag
 
-def slide_window(sample, window_size=180) -> list[list[int]]:
+def slide_window(sample, window_size=30) -> list[list[int]]:
     """Create a sliding window centered at the given position."""
 
     half = window_size // 2
@@ -114,7 +114,7 @@ def save_XY_to_file(output_path, X_list, y_list):
     print(f"Stacking {total_samples} samples... (Anti-Crash Method)")
 
     # 1. Pre-allocate matrix DIRECTLY IN LIGHT FORMAT (float16) to limit RAM overhead (~1.5 GB)
-    X = np.empty((total_samples, 180, 4), dtype=np.float16)
+    X = np.empty((total_samples, 30, 4), dtype=np.float16)
 
     # 2. Fill the matrix sequentially row by row to prevent spikes in memory consumption
     for i, x_window in enumerate(X_list):
@@ -134,7 +134,7 @@ def save_XY_to_file(output_path, X_list, y_list):
     del X
     del y
 
-def extract_windows_numpy(seq_onehot, indices, window_size=180):
+def extract_windows_numpy(seq_onehot, indices, window_size=30):
     """
     Extract windows using numpy slicing with vectorized padding.
     Avoids building heavy intermediate Python lists of lists.
@@ -159,7 +159,7 @@ def extract_windows_numpy(seq_onehot, indices, window_size=180):
 
     return X
 
-def extract_balanced_windows(sample, tagged_seq, window_size=180):
+def extract_balanced_windows(sample, tagged_seq, window_size=30):
     tagged_arr = np.asarray(tagged_seq)  # Prevents repetitive evaluations of .index() loops
 
     indices_intron = np.where(tagged_arr == 0)[0]
@@ -195,7 +195,7 @@ def build_XY_dataset(data):
         tagged_seqs.append(tagged)
 
     # --- Step 1: Collect ALL items globally without intermediate per-gene matching bounds ---
-    window_size = 180
+    window_size = 30
     X_blocks = []
     y_blocks = []
 
