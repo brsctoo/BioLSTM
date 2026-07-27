@@ -75,5 +75,3 @@ def create_model():
     )
 
     return model
-
-lstm_model = create_model()
