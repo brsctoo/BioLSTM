@@ -46,8 +46,10 @@ DEFAULT_NAME = "actin_fungi"
 GB_FILE_NAME = "all_proteins"
 OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb")
 
+GB_NAME = "actin_fungi"
+
 def get_output_paths(name):
-    genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{name}")
+    genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_NAME}")
     mod1 = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
     mod2 = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
     result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
