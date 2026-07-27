@@ -5,9 +5,15 @@ The data_XY is a list of tuples: [(X, Y), ...], where X is the input sequence - 
 """
 
 import numpy as np
-from lstm_model import lstm_model, EPOCHS, BATCH_SIZE
+from lstm_model import create_model, EPOCHS, BATCH_SIZE
 
 def train_model(XY_filepath_input, result_filepath_output):
+    # Fresh model + fresh optimizer state for every call. Importing a
+    # module-level instance instead would leak weights and Adam's
+    # momentum/variance accumulators across experiments run in the
+    # same process.
+    lstm_model = create_model()
+
     # Load dataset (npz: X, y) with allow_pickle=True
     data = np.load(XY_filepath_input, allow_pickle=True)
     X = np.array(data['X'], dtype=np.float32)
