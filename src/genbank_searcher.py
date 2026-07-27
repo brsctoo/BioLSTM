@@ -18,7 +18,6 @@ Entrez.email = "bcominscheffel@gmail.com"
 # Configuration of search parameters
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
 def main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE):
     search_data(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
 
