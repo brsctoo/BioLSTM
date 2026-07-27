@@ -129,6 +129,7 @@ import validation
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # -------- Genbank Search Configuration -----------
+INCLUDE_PLANTAE_IN_TRAINING = True
 
 MAX_RECORDS = 5000
 BATCH_SIZE = 50
@@ -136,12 +137,18 @@ MAX_PER_SPECIES = 400
 MAX_GENERAL = 2000
 MAX_HOUSEKEEPING = 2000
 
+_ORGANISM_SCOPE = (
+    "(Fungi[Organism] OR Metazoa[Organism]" +
+    (" OR Plantae[Organism])" if INCLUDE_PLANTAE_IN_TRAINING else ")")
+)
+
 QUERY_GENERAL = (
-    '(Fungi[Organism] OR Metazoa[Organism]) '
+    f'{_ORGANISM_SCOPE} '
     'AND biomol_genomic[PROP] '
     'AND "complete cds"[Title] '
     'AND 200:15000[Sequence Length] '
     'NOT "whole genome"[Title] NOT chromosome[Title] NOT wgs[Keyword] '
+    'NOT "PREDICTED"[Title] '
     'NOT mitochondrion[All Fields] NOT mitochondrial[All Fields] '
     'NOT chloroplast[All Fields] NOT plastid[All Fields]'
 )
