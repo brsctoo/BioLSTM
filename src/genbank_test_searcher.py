@@ -11,29 +11,51 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 Entrez.email = "bcominscheffel@email.com"
 
+import random
+
 def fetch_genbank(query, output_filepath, max_records=500):
-    """Fetch records from GenBank and save as .gb file."""
+    """Fetch records from GenBank with random sampling for diversity."""
 
     print(f"Searching GenBank with the following query:\n{query}\n")
 
-    # Fetch IDs
-    handle = Entrez.esearch(db="nucleotide", term=query, retmax=max_records)
+    # 1. Descobrir o total de registros disponíveis
+    handle = Entrez.esearch(db="nucleotide", term=query, retmax=0)
     record = Entrez.read(handle)
     handle.close()
 
-    # Cast to standard string list to resolve Pyright's reportIndexIssue on IntegerElement
-    # Ensure record behaves as a dictionary and extract IDs safely
-    record_dict = dict(record) if isinstance(record, dict) else {}
-    ids = [str(id_item) for id_item in record_dict.get("IdList", [])]
-    print(f"Found {len(ids)} records.")
+    total_count = int(record["Count"])
+    print(f"Total matching records in GenBank: {total_count}")
 
-    if not ids:
+    if total_count == 0:
         print("No records found. Please check your query.")
         return False
 
-    # Download records in batch
+    # 2. Definir um ponto de partida aleatório e puxar um 'pool' de IDs
+    # Puxamos até 5000 IDs para poder embaralhar, garantindo diversidade taxonômica
+    pool_size = 5000
+    max_start = max(0, total_count - pool_size)
+    random_start = random.randint(0, max_start)
+
+    print(f"Fetching a pool of IDs starting from offset {random_start}...")
+    handle = Entrez.esearch(db="nucleotide", term=query, retstart=random_start, retmax=pool_size)
+    record = Entrez.read(handle)
+    handle.close()
+
+    record_dict = dict(record) if isinstance(record, dict) else {}
+    ids = [str(id_item) for id_item in record_dict.get("IdList", [])]
+
+    if not ids:
+        print("Failed to retrieve IDs.")
+        return False
+
+    # 3. Sortear aleatoriamente a quantidade exata que o usuário pediu
+    sample_size = min(max_records, len(ids))
+    sampled_ids = random.sample(ids, sample_size)
+    print(f"Randomly selected {len(sampled_ids)} IDs from the pool.")
+
+    # 4. Baixar os registros finais
     print("Downloading records...")
-    handle = Entrez.efetch(db="nucleotide", id=ids, rettype="gb", retmode="text")
+    handle = Entrez.efetch(db="nucleotide", id=sampled_ids, rettype="gb", retmode="text")
 
     gb_path = output_filepath + ".gb"
     with open(gb_path, "w") as f:
