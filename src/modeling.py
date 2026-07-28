@@ -28,6 +28,14 @@ import gc
 import numpy as np
 import pickle
 
+# Central window size — overridden at runtime by pipeline.py via set_window_size()
+WINDOW_SIZE = 400
+
+def set_window_size(size: int) -> None:
+    """Called by pipeline.py to propagate --window-size into this module."""
+    global WINDOW_SIZE
+    WINDOW_SIZE = size
+
 BASE_TO_VECTOR = {
     'A':[1,0,0,0],
     'T':[0,1,0,0],
@@ -67,8 +75,9 @@ def tag_positions(sample) -> list[int]:
 
     return tag
 
-def slide_window(sample, window_size=400) -> list[list[int]]:
+def slide_window(sample, window_size=None) -> list[list[int]]:
     """Create a sliding window centered at the given position."""
+    if window_size is None: window_size = WINDOW_SIZE
 
     half = window_size // 2
     seq = transform_baseSeq_to_onehot(sample["sequence"])
@@ -114,7 +123,7 @@ def save_XY_to_file(output_path, X_list, y_list):
     print(f"Stacking {total_samples} samples... (Anti-Crash Method)")
 
     # 1. Pre-allocate matrix DIRECTLY IN LIGHT FORMAT (float16) to limit RAM overhead (~1.5 GB)
-    X = np.empty((total_samples, 400, 4), dtype=np.float16)
+    X = np.empty((total_samples, WINDOW_SIZE, 4), dtype=np.float16)
 
     # 2. Fill the matrix sequentially row by row to prevent spikes in memory consumption
     for i, x_window in enumerate(X_list):
@@ -134,11 +143,12 @@ def save_XY_to_file(output_path, X_list, y_list):
     del X
     del y
 
-def extract_windows_numpy(seq_onehot, indices, window_size=400):
+def extract_windows_numpy(seq_onehot, indices, window_size=None):
     """
     Extract windows using numpy slicing with vectorized padding.
     Avoids building heavy intermediate Python lists of lists.
     """
+    if window_size is None: window_size = WINDOW_SIZE
     half = window_size // 2
     n = len(seq_onehot)
 
@@ -159,7 +169,8 @@ def extract_windows_numpy(seq_onehot, indices, window_size=400):
 
     return X
 
-def extract_balanced_windows(sample, tagged_seq, window_size=400):
+def extract_balanced_windows(sample, tagged_seq, window_size=None):
+    if window_size is None: window_size = WINDOW_SIZE
     tagged_arr = np.asarray(tagged_seq)  # Prevents repetitive evaluations of .index() loops
 
     indices_intron = np.where(tagged_arr == 0)[0]
@@ -185,11 +196,12 @@ def extract_balanced_windows(sample, tagged_seq, window_size=400):
 
     return X, y
 
-def build_XY_from_gene_list(gene_list, window_size=400, stride=50):
+def build_XY_from_gene_list(gene_list, window_size=None, stride=50):
     """
     Generate X, y dataset from a list of gene samples WITHOUT global
     undersampling, preserving the natural exon/intron class distribution.
     """
+    if window_size is None: window_size = WINDOW_SIZE
     X_blocks = []
     y_blocks = []
 

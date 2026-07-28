@@ -83,36 +83,6 @@ OPTIONAL FLAGS
         fixed seed (123865) inside genbank_reader.separate_train_test,
         independent of --seed, so different experiments stay comparable
         on the same held-out set.
-
-============================================================
-EXAMPLES
-============================================================
-
-    # Search NCBI and save actin_fungi.gb
-    python pipeline.py search_data
-
-    # Train with no injection (baseline)
-    python pipeline.py train
-
-    # Train with 50% conditioned injection (default mode)
-    python pipeline.py train --injection-rate 0.5 --name actin_rate50
-
-    # Train with uniform injection at 50% (the causal control for the above)
-    python pipeline.py train --injection-rate 0.5 --injection-mode uniform --name actin_uniform50
-
-    # Train with mixed injection (30% conditioned weight)
-    python pipeline.py train --injection-rate 1.0 --injection-mode mixed --alpha 0.3 --name actin_mixed
-
-    # Full run (train + validate) with a fixed seed for reproducibility
-    python pipeline.py full --injection-rate 0.5 --seed 7 --name actin_rate50_seed7
-
-    # Validate only (uses the model saved under the given name)
-    python pipeline.py test --name actin_rate50
-
-    # Interactive menu (no positional argument)
-    python pipeline.py
-
-============================================================
 """
 
 import os
@@ -120,11 +90,14 @@ import gc
 import argparse
 from datetime import datetime
 
+import numpy as np
 import genbank_searcher
 import genbank_reader
 import modeling
+import lstm_model
 import train_model
 import validation
+import rf_model
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -143,6 +116,8 @@ DEFAULT_INJECTION_RATE = 0.0
 DEFAULT_INJECTION_MODE = "conditioned"  # Options: conditioned | uniform | illumina | mixed
 DEFAULT_NAME = "actin_fungi"
 DEFAULT_SEED = 123865
+DEFAULT_WINDOW_SIZE = 400 
+DEFAULT_EPOCHS = 100     
 
 GB_FILE_NAME = "all_proteins"
 OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb")
@@ -218,7 +193,7 @@ def search_data_pipeline():
                            MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
     log_stage("SEARCH — DONE.")
 
-def create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs):
+def create_train_test_files(injection_rate, injection_mode, name, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
     genbank_input, mod1, mod2, _ = get_output_paths(name)
 
     # Derive separate paths for the two gene-level splits
@@ -234,7 +209,7 @@ def create_train_test_files(injection_rate, injection_mode, name, **injector_kwa
     gc.collect()
     log_stage("PRE-PROCESSING — DONE. Memory freed.")
 
-    log_stage("FEATURIZATION with GENE-SPLIT (no leakage, no undersampling)")
+    log_stage(f"FEATURIZATION with GENE-SPLIT (window_size={window_size}, no leakage, no undersampling)")
     print("Input mod1  :", mod1 + "_train.mod1")
     print("Output train:", mod2_train)
     print("Output val  :", mod2_val)
@@ -253,31 +228,72 @@ def create_train_test_files(injection_rate, injection_mode, name, **injector_kwa
     return mod2_train, mod2_val
 
 
-def train_pipeline(injection_rate, injection_mode, name, **injector_kwargs):
+def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
     _, _, mod2, result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
 
-    create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs)
+    create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
 
-    log_stage("TRAINING  (Bi-LSTM with gene-split and natural class distribution)")
-    print("Input train :", mod2_train)
-    print("Input val   :", mod2_val)
-    print("Output model:", result)
-    train_model.train_model_gene_split(mod2_train, mod2_val, result)
+    # ------------------------------------------------------------------ #
+    # ETAPA 1: Random Forest (roda ANTES do LSTM)                         #
+    # Treina sobre as features estatísticas globais das janelas e gera    #
+    # P(Éxon) por janela, que será injetada como 5º canal no One-Hot.     #
+    # ------------------------------------------------------------------ #
+    log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
+    rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val)
+    log_stage(
+        f"RANDOM FOREST — DONE. "
+        f"Acurácia: {rf_metrics['accuracy']*100:.2f}% | "
+        f"F1 Éxon: {rf_metrics['f1_exon']*100:.2f}%"
+    )
+    gc.collect()
+
+    # ------------------------------------------------------------------ #
+    # ETAPA 2: Injeção de Probabilidade RF → Tensores Aumentados          #
+    # Os arquivos .npz originais (W, 4) são enriquecidos com o 5º canal   #
+    # de P(Éxon) → (W, 5) e salvos como arquivos _aug_train/val.npz.     #
+    # ------------------------------------------------------------------ #
+    log_stage(f"AUGMENTAÇÃO — Injetando P(Éxon) do RF como 5º canal (One-Hot → 5D, W={window_size})")
+
+    mod2_train_aug = mod2.replace(".npz", "_aug_train.npz")
+    mod2_val_aug   = mod2.replace(".npz", "_aug_val.npz")
+
+    for src_path, dst_path, label in [
+        (mod2_train, mod2_train_aug, "treino"),
+        (mod2_val,   mod2_val_aug,   "validação"),
+    ]:
+        data = np.load(src_path)
+        X_ohe = data["X"].astype(np.float32)   # (N, W, 4)
+        y     = data["y"]
+        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe)  # (N, W, 5)
+        np.savez_compressed(dst_path, X=X_aug, y=y)
+        print(f"  [AUG] {label}: {X_ohe.shape} → {X_aug.shape}  → salvo em {dst_path}")
+    gc.collect()
+    log_stage("AUGMENTAÇÃO — DONE. Tensores (W, 5) salvos.")
+
+    # ------------------------------------------------------------------ #
+    # ETAPA 3: Bi-LSTM treinado sobre os tensores aumentados (W, 5)       #
+    # ------------------------------------------------------------------ #
+    log_stage(f"TRAINING  (Bi-LSTM com entrada aumentada {window_size}×5, epochs={epochs})")
+    print("Input train (aug):", mod2_train_aug)
+    print("Input val   (aug):", mod2_val_aug)
+    print("Output model     :", result)
+    train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
 
 
-
 def validate_pipeline(name):
     _, mod1, _, result = get_output_paths(name)
+
 
     log_stage("VALIDATION — Loading model and test data")
     print("Model    :", result)
     print("Test data:", mod1 + "_test.mod1")
     validation.validate_model(result, mod1 + "_test.mod1")
     log_stage("VALIDATION — DONE.")
+
 
 
 def validate_specific_dataset(name):
@@ -333,16 +349,30 @@ def main():
         help="Global random seed for reproducibility (Python random, NumPy, "
              f"TensorFlow). Default: {DEFAULT_SEED}")
 
+    parser.add_argument("--window-size", type=int, default=DEFAULT_WINDOW_SIZE,
+        help="Tamanho da janela deslizante em nucleotídeos. Propagado para modeling.py, "
+             f"lstm_model.py e rf_model.py. Default: {DEFAULT_WINDOW_SIZE}")
+
+    parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS,
+        help="Número máximo de épocas de treinamento do Bi-LSTM. "
+             f"Early Stopping pode parar antes. Default: {DEFAULT_EPOCHS}")
+
     args = parser.parse_args()
 
     injection_rate = args.injection_rate
     injection_mode = args.injection_mode
     name = args.name
     seed = args.seed
+    window_size = args.window_size
+    epochs = args.epochs
 
     injector_kwargs = build_injector_kwargs(injection_mode, args.alpha, args.illumina_mode)
 
     set_global_seed(seed)
+
+    # Propaga window_size para todos os módulos que usam janelas
+    modeling.set_window_size(window_size)
+    lstm_model.set_window_size(window_size)
 
     # If no mode was provided, show interactive menu
     if args.mode is None:
@@ -357,9 +387,11 @@ def main():
         print("4 - Validate specific dataset")
         print("5 - Create train and test files")
         print("="*50)
-        print(f"\nInjection rate: {injection_rate} (use --injection-rate to change)")
+        print(f"Injection rate: {injection_rate} (use --injection-rate to change)")
         print(f"Injection mode: {injection_mode} (use --injection-mode to change)")
         print(f"Experiment name: {name} (use --name to change)")
+        print(f"Window size: {window_size} (use --window-size to change)")
+        print(f"Epochs: {epochs} (use --epochs to change)")
         print(f"Seed: {seed} (use --seed to change)")
 
         choice = input("\nEnter the option number (0/1/2/3/4/5): ").strip()
@@ -381,18 +413,18 @@ def main():
     if args.mode == "search_data":
         search_data_pipeline()
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, **injector_kwargs)
     elif args.mode == "test":
         validate_pipeline(name)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name)
     elif args.mode == "validate_specific_dataset":
         validate_specific_dataset(name)
     elif args.mode == "create_train_test_files":
-        create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs)
+        create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
 
 
 if __name__ == "__main__":
