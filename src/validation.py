@@ -95,7 +95,7 @@ def validate_model(model_path, data_test, rf=None):
 
         tagged_sequence = modeling.tag_positions(sample) # returns something like: [0,0,1,0,0...]
 
-        windows = modeling.slide_window(sample, window_size=400) # sliding window -> list of windows
+        windows = modeling.slide_window(sample)  # usa modeling.WINDOW_SIZE setado pelo pipeline
 
         X = []
         Y = []
