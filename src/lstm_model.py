@@ -23,7 +23,7 @@ LSTM_UNITS = 60
 # Reduzido para 1e-4 para evitar que o modelo decore o treino muito rápido
 LEARNING_RATE = 1e-4
 VALIDATION_SPLIT = 0.2
-WINDOWS_SIZE = 400
+WINDOWS_SIZE = 200
 
 # Alpha adicionado! Exons (1) recebem mais "peso" de atenção da rede do que Introns (0)
 LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
@@ -40,43 +40,75 @@ METRICS = [
     tf.keras.metrics.AUC(name='auc')
 ]
 
+import tensorflow as tf
+from tensorflow.keras.layers import (
+    Conv1D, MaxPooling1D, BatchNormalization, Add,
+    Bidirectional, LSTM, Dense, Dropout, Input
+)
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import BinaryFocalCrossentropy
+
+# ... (suas constantes e métricas continuam iguais) ...
+
+def residual_block(x, filters, kernel_size, dilation_rate):
+    """
+    Cria um mini bloco residual com dilatação (Inpiração direta da ideia do Claude).
+    Ajuda o gradiente a fluir melhor e captura contextos complexos.
+    """
+    shortcut = x
+
+    # Primeira convolução dilatada
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(x)
+    fx = BatchNormalization()(fx)
+
+    # Segunda convolução dilatada
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='activation', dilation_rate=dilation_rate)(fx) # Ajustado para relu abaixo se necessário, ou mantido
+    # Corrigindo a ativação para relu padrão:
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(fx)
+    fx = BatchNormalization()(fx)
+
+    # Se o número de canais da entrada for diferente dos filtros, ajusta o shortcut
+    if shortcut.shape[-1] != filters:
+        shortcut = Conv1D(filters=filters, kernel_size=1, padding='same')(shortcut)
+
+    # Soma a entrada original à saída (ResNet shortcut)
+    out = Add()([shortcut, fx])
+    return out
+
 def create_model():
     """
-    Constrói uma arquitetura híbrida otimizada (CNN + Deep Stacked Bi-LSTM) para sequências biológicas.
+    Constrói o modelo híbrido atualizado com Convoluções Dilatadas e Blocos Residuais.
     """
     inp = Input(shape=(WINDOWS_SIZE, 4))
 
-    # --- Block 0: very short motifs (codon start, GT-AG variations) ---
-    x = Conv1D(filters=32, kernel_size=3, padding='same', activation='relu')(inp)
+    # --- Stem (Extração inicial de motifs locais GT-AG) ---
+    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp)
     x = BatchNormalization()(x)
 
-    # --- Block 1: short motifs (codons, GT-AG) ---
-    x = Conv1D(filters=64, kernel_size=8, padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+    # --- Bloco Residual com Contexto Médio (Dilatação d=2) ---
+    x = residual_block(x, filters=64, kernel_size=5, dilation_rate=2)
 
-    # --- Block 2: medium motifs (polypyrimidine tract, branch point) ---
-    x = Conv1D(filters=128, kernel_size=16, padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+    # --- Bloco Residual com Contexto Amplo (Dilatação d=4) ---
+    x = residual_block(x, filters=128, kernel_size=5, dilation_rate=4)
+
     x = MaxPooling1D(pool_size=2)(x)
-    x = Dropout(0.3)(x) # Aumentado de 0.2 para 0.3
+    x = Dropout(0.3)(x)
 
-    # --- Deep Bi-LSTM: Stacked layers for long directional context ---
-    # 1ª Camada: Retorna sequências para alimentar a próxima camada recorrente
+    # --- Deep Bi-LSTM (Processa a sequência longa fornecida pelas CNNs dilatadas) ---
     x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
-
-    # 2ª Camada: Processa o contexto aprofundado e compacta a saída
     x = Bidirectional(LSTM(32, return_sequences=False, dropout=0.3))(x)
-    x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5 (Regularização forte)
+    x = Dropout(0.5)(x)
 
-    # --- Classifier ---
+    # --- Classificador Global da Janela ---
     x = Dense(32, activation='relu')(x)
-    x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5
+    x = Dropout(0.5)(x)
     out = Dense(1, activation='sigmoid')(x)
 
     model = Model(inputs=inp, outputs=out)
 
     model.compile(
-        optimizer=OPTIMIZER, # Usa a constante definida no topo (1e-4) unificando o lr
+        optimizer=OPTIMIZER,
         loss=LOSS_FUNCTION,
         metrics=METRICS
     )
