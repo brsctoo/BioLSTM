@@ -263,3 +263,135 @@ def modeling_train_data(data_filepath_input, XY_filepath_output):
     print("Ratio of degenerate nucleotides: ", ratio_degenerate_nucleotides, "%")
 
     return ratio_degenerate_nucleotides
+
+
+# ---------------------------------------------------------------------------
+# CORRECTED PIPELINE — Gene-level split + natural class distribution
+# ---------------------------------------------------------------------------
+
+def build_XY_from_gene_list(gene_list, window_size=120):
+    """
+    Generate X, y dataset from a list of gene samples WITHOUT global
+    undersampling, preserving the natural exon/intron class distribution.
+
+    Unlike build_XY_dataset, this function:
+      - Does NOT perform any 50/50 undersampling/balancing.
+      - Keeps all annotated positions (introns and exons) intact.
+      - Is designed to be called separately for train and validation
+        gene subsets, so windows from different splits never overlap.
+
+    Args:
+        gene_list  : list of dicts with keys 'sequence', 'exon_intervals',
+                     'intron_intervals' (standard sample format).
+        window_size: sliding window length in nucleotides (default: 120).
+
+    Returns:
+        X : np.ndarray of shape (N, window_size, 4), dtype float16
+        y : np.ndarray of shape (N,),               dtype int8
+    """
+    X_blocks = []
+    y_blocks = []
+
+    for i, sample in enumerate(gene_list):
+        if i % 50 == 0:
+            print(f"  Processing gene {i+1}/{len(gene_list)}")
+
+        tagged_seq = tag_positions(sample)
+        tagged_arr = np.asarray(tagged_seq)
+
+        # Only annotated positions (skip -1 UTR/flanking regions)
+        indices = np.where(tagged_arr >= 0)[0]
+        if len(indices) == 0:
+            continue
+
+        seq_onehot = transform_baseSeq_to_onehot(sample["sequence"])
+        seq_onehot = np.asarray(seq_onehot, dtype=np.float16)
+
+        X = extract_windows_numpy(seq_onehot, indices, window_size)
+        y = tagged_arr[indices].astype(np.int8)
+
+        X_blocks.append(X)
+        y_blocks.append(y)
+
+    if not X_blocks:
+        raise ValueError("No windows were generated. Check the input data.")
+
+    X_final = np.concatenate(X_blocks, axis=0)
+    y_final = np.concatenate(y_blocks, axis=0)
+
+    # Shuffle within the split to remove sequential ordering bias
+    rng_idx = np.random.permutation(len(y_final))
+    return X_final[rng_idx], y_final[rng_idx]
+
+
+def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_output,
+                                   val_gene_fraction=0.2):
+    """
+    CORRECTED VERSION: splits genes BEFORE generating windows, eliminating
+    data leakage caused by overlapping sliding windows across train/val sets.
+
+    Key differences from modeling_train_data:
+      - Split unit is the GENE (independent entity), not the window (derived).
+      - Windows are generated separately for each split — no cross-contamination.
+      - Natural exon/intron distribution is PRESERVED (no 50/50 balancing).
+        Class imbalance is handled by BinaryFocalCrossentropy + class_weight
+        in train_model_gene_split.
+
+    Saves two separate .npz files:
+      XY_train_output : 80% of genes -> training windows
+      XY_val_output   : 20% of genes -> validation windows
+
+    Args:
+        data_filepath_input : path to the .mod1 pickle file produced by genbank_reader.
+        XY_train_output     : output path for the training .npz file.
+        XY_val_output       : output path for the validation .npz file.
+        val_gene_fraction   : fraction of genes reserved for validation (default: 0.2).
+
+    Returns:
+        X_train, y_train, X_val, y_val as numpy arrays.
+    """
+    data = pickle.load(open(data_filepath_input, "rb"))
+
+    print(f"Total genes loaded: {len(data)}")
+
+    # 1. Split at the GENE level (independent unit)
+    n_val   = max(1, int(len(data) * val_gene_fraction))
+    n_train = len(data) - n_val
+
+    # Shuffle genes (not windows!)
+    gene_indices = np.random.permutation(len(data))
+    train_genes = [data[i] for i in gene_indices[:n_train]]
+    val_genes   = [data[i] for i in gene_indices[n_train:]]
+
+    print(f"Gene-level split -> Train: {len(train_genes)} genes | Val: {len(val_genes)} genes")
+
+    # 2. Generate windows SEPARATELY for each split (no cross-contamination)
+    print("\nGenerating TRAIN windows (natural distribution, no undersampling)...")
+    X_train, y_train = build_XY_from_gene_list(train_genes)
+    print(f"  X_train shape: {X_train.shape}")
+    print(f"  Exons: {np.sum(y_train==1):,} | Introns: {np.sum(y_train==0):,}")
+    print(f"  Exon proportion: {np.mean(y_train==1)*100:.1f}%")
+
+    print("\nGenerating VALIDATION windows (natural distribution, no undersampling)...")
+    X_val, y_val = build_XY_from_gene_list(val_genes)
+    print(f"  X_val shape  : {X_val.shape}")
+    print(f"  Exons: {np.sum(y_val==1):,}   | Introns: {np.sum(y_val==0):,}")
+    print(f"  Exon proportion: {np.mean(y_val==1)*100:.1f}%")
+
+    # 3. Save both splits to separate files
+    print(f"\nSaving training split to  : {XY_train_output}")
+    np.savez_compressed(XY_train_output, X=X_train, y=y_train)
+
+    print(f"Saving validation split to: {XY_val_output}")
+    np.savez_compressed(XY_val_output, X=X_val, y=y_val)
+
+    print("\nGene-split featurization complete!")
+
+    # Report degenerate nucleotide stats (accumulated across all processed genes)
+    print("Degenerate nucleotides count: ", degenerate_bases_count)
+    print("Total sequence bases count  : ", total_bases_count)
+    if total_bases_count > 0:
+        ratio = (degenerate_bases_count / total_bases_count) * 100
+        print(f"Ratio of degenerate nucleotides: {ratio:.4f}%")
+
+    return X_train, y_train, X_val, y_val

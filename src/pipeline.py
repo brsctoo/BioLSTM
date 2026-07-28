@@ -221,6 +221,10 @@ def search_data_pipeline():
 def create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs):
     genbank_input, mod1, mod2, _ = get_output_paths(name)
 
+    # Derive separate paths for the two gene-level splits
+    mod2_train = mod2.replace(".npz", "_train.npz")
+    mod2_val   = mod2.replace(".npz", "_val.npz")
+
     log_stage(f"PRE-PROCESSING  |  rate={injection_rate}  mode={injection_mode}  name={name}")
     print("Input .gb file:", genbank_input + ".gb")
     print("Output mod1   :", mod1)
@@ -230,28 +234,40 @@ def create_train_test_files(injection_rate, injection_mode, name, **injector_kwa
     gc.collect()
     log_stage("PRE-PROCESSING — DONE. Memory freed.")
 
-    log_stage("FEATURIZATION  (sliding window + one-hot)")
-    print("Input mod1 :", mod1 + "_train.mod1")
-    print("Output mod2:", mod2)
-    ratio_degenerate = modeling.modeling_train_data(mod1 + "_train.mod1", mod2)
+    log_stage("FEATURIZATION with GENE-SPLIT (no leakage, no undersampling)")
+    print("Input mod1  :", mod1 + "_train.mod1")
+    print("Output train:", mod2_train)
+    print("Output val  :", mod2_val)
+
+    # Split is performed at the GENE level before window generation.
+    # No degenerate ratio is returned here; stats are printed inside the function.
+    modeling.modeling_train_data_gene_split(
+        mod1 + "_train.mod1",
+        mod2_train,
+        mod2_val,
+        val_gene_fraction=0.2
+    )
     gc.collect()
-    log_stage(f"FEATURIZATION — DONE. Degenerate ratio: {ratio_degenerate:.2f}%. Memory freed.")
+    log_stage("FEATURIZATION — DONE. Memory freed.")
 
-    save_run_metadata(name, injection_rate, injection_mode, ratio_degenerate, injector_kwargs)
-
-    return mod2
+    return mod2_train, mod2_val
 
 
 def train_pipeline(injection_rate, injection_mode, name, **injector_kwargs):
     _, _, mod2, result = get_output_paths(name)
+    mod2_train = mod2.replace(".npz", "_train.npz")
+    mod2_val   = mod2.replace(".npz", "_val.npz")
+
     create_train_test_files(injection_rate, injection_mode, name, **injector_kwargs)
 
-    log_stage("TRAINING  (Bi-LSTM)")
-    print("Input mod2  :", mod2)
+    log_stage("TRAINING  (Bi-LSTM with gene-split and natural class distribution)")
+    print("Input train :", mod2_train)
+    print("Input val   :", mod2_val)
     print("Output model:", result)
-    train_model.train_model(mod2, result)
+    train_model.train_model_gene_split(mod2_train, mod2_val, result)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
+
 
 
 def validate_pipeline(name):
