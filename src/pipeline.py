@@ -118,6 +118,7 @@ DEFAULT_NAME = "actin_fungi"
 DEFAULT_SEED = 123865
 DEFAULT_WINDOW_SIZE = 400 
 DEFAULT_EPOCHS = 100     
+DEFAULT_RF_SCALE = 0.15   # influência do RF na entrada do LSTM [0.0 = desligado, 1.0 = total]
 
 GB_FILE_NAME = "all_proteins"
 OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb")
@@ -229,7 +230,7 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
     return mod2_train, mod2_val
 
 
-def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
+def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, **injector_kwargs):
     _, _, mod2, result, rf_result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
@@ -267,7 +268,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
         data = np.load(src_path)
         X_ohe = data["X"].astype(np.float32)   # (N, W, 4)
         y     = data["y"]
-        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe)  # (N, W, 5)
+        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe, rf_scale=rf_scale)  # (N, W, 5)
         np.savez_compressed(dst_path, X=X_aug, y=y)
         print(f"  [AUG] {label}: {X_ohe.shape} → {X_aug.shape}  → salvo em {dst_path}")
     gc.collect()
@@ -362,6 +363,11 @@ def main():
         help="Número máximo de épocas de treinamento do Bi-LSTM. "
              f"Early Stopping pode parar antes. Default: {DEFAULT_EPOCHS}")
 
+    parser.add_argument("--rf-scale", type=float, default=DEFAULT_RF_SCALE,
+        help="Fator de escala do canal P(Éxon) do RF injetado na entrada do LSTM. "
+             "0.0 = RF desligado, 1.0 = influência total. "
+             f"Default: {DEFAULT_RF_SCALE}")
+
     args = parser.parse_args()
 
     injection_rate = args.injection_rate
@@ -369,7 +375,8 @@ def main():
     name = args.name
     seed = args.seed
     window_size = args.window_size
-    epochs = args.epochs
+    epochs      = args.epochs
+    rf_scale    = args.rf_scale
 
     injector_kwargs = build_injector_kwargs(injection_mode, args.alpha, args.illumina_mode)
 
@@ -397,6 +404,7 @@ def main():
         print(f"Experiment name: {name} (use --name to change)")
         print(f"Window size: {window_size} (use --window-size to change)")
         print(f"Epochs: {epochs} (use --epochs to change)")
+        print(f"RF scale: {rf_scale} (use --rf-scale to change)")
         print(f"Seed: {seed} (use --seed to change)")
 
         choice = input("\nEnter the option number (0/1/2/3/4/5): ").strip()
@@ -418,11 +426,11 @@ def main():
     if args.mode == "search_data":
         search_data_pipeline()
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
     elif args.mode == "test":
         validate_pipeline(name)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name)
