@@ -23,7 +23,7 @@ LSTM_UNITS = 60
 # Reduzido para 1e-4 para evitar que o modelo decore o treino muito rápido
 LEARNING_RATE = 1e-4
 VALIDATION_SPLIT = 0.2
-WINDOWS_SIZE = 120
+WINDOWS_SIZE = 400
 
 # Alpha adicionado! Exons (1) recebem mais "peso" de atenção da rede do que Introns (0)
 LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
