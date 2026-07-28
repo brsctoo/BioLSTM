@@ -63,7 +63,7 @@ def residual_block(x, filters, kernel_size, dilation_rate):
     fx = BatchNormalization()(fx)
 
     # Segunda convolução dilatada
-    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='activation', dilation_rate=dilation_rate)(fx) # Ajustado para relu abaixo se necessário, ou mantido
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(fx) # Ajustado para relu abaixo se necessário, ou mantido
     # Corrigindo a ativação para relu padrão:
     fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(fx)
     fx = BatchNormalization()(fx)
