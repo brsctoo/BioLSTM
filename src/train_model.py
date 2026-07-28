@@ -5,7 +5,11 @@ The data_XY is a list of tuples: [(X, Y), ...], where X is the input sequence - 
 """
 
 import numpy as np
-from lstm_model import create_model, EPOCHS, BATCH_SIZE
+from tensorflow.keras.callbacks import EarlyStopping
+from lstm_model import create_model, BATCH_SIZE
+
+# Definimos 30 épocas conforme solicitado
+EPOCHS = 30
 
 def train_model(XY_filepath_input, result_filepath_output):
     # Fresh model + fresh optimizer state for every call. Importing a
@@ -55,6 +59,15 @@ def train_model(XY_filepath_input, result_filepath_output):
 
     class_weights = {0: weight_0, 1: weight_1}
 
+    # Configuração do Early Stopping
+    # Monitora o erro de validação (val_loss). Se ele parar de cair por 5 épocas, o treino para.
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=5,
+        restore_best_weights=True,
+        verbose=1
+    )
+
     history = lstm_model.fit(
         X_train,
         Y_train,
@@ -62,6 +75,7 @@ def train_model(XY_filepath_input, result_filepath_output):
         batch_size=BATCH_SIZE,
         validation_data=(X_test, Y_test),
         class_weight=class_weights,
+        callbacks=[early_stopping],  # <-- Adicionado aqui
         verbose=2 # type: ignore
     )
 
@@ -94,8 +108,8 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         discarding majority-class samples.
 
     Args:
-        XY_train_filepath      : path to the training .npz file.
-        XY_val_filepath        : path to the validation .npz file.
+        XY_train_filepath    : path to the training .npz file.
+        XY_val_filepath      : path to the validation .npz file.
         result_filepath_output : path where the trained model (.h5) will be saved.
 
     Returns:
@@ -117,7 +131,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     print(f"\n--- REAL dataset distribution (no artificial balancing) ---")
     print(f"Train -> Exons: {np.sum(y_train==1):,} | Introns: {np.sum(y_train==0):,} | "
           f"Exon proportion: {np.mean(y_train==1)*100:.1f}%")
-    print(f"Val   -> Exons: {np.sum(y_val==1):,}   | Introns: {np.sum(y_val==0):,}   | "
+    print(f"Val    -> Exons: {np.sum(y_val==1):,}   | Introns: {np.sum(y_val==0):,}   | "
           f"Exon proportion: {np.mean(y_val==1)*100:.1f}%")
     print("----------------------------------------------------------\n")
 
@@ -133,6 +147,14 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     class_weights = {0: float(weight_0), 1: float(weight_1)}
     print(f"Class weights -> intron (0): {weight_0:.4f} | exon (1): {weight_1:.4f}\n")
 
+    # Configuração do Early Stopping para o fluxo gene-split
+    early_stopping = EarlyStopping(
+        monitor='val_loss',
+        patience=5,
+        restore_best_weights=True,
+        verbose=1
+    )
+
     # Train using validation_data with fully separated gene sets
     # (NOT validation_split, which would re-contaminate from the same pool)
     history = lstm_model.fit(
@@ -142,6 +164,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         batch_size=BATCH_SIZE,
         validation_data=(X_val, y_val),  # genes completely separated
         class_weight=class_weights,
+        callbacks=[early_stopping],  # <-- Adicionado aqui
         verbose=2  # type: ignore
     )
 
