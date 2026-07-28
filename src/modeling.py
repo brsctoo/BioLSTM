@@ -185,109 +185,10 @@ def extract_balanced_windows(sample, tagged_seq, window_size=120):
 
     return X, y
 
-
-def build_XY_dataset(data):
-    print("Counting target samples to map pre-allocated memory blocks...")
-    tagged_seqs = []
-
-    for sample in data:
-        tagged = tag_positions(sample)
-        tagged_seqs.append(tagged)
-
-    # --- Step 1: Collect ALL items globally without intermediate per-gene matching bounds ---
-    window_size = 120
-    X_blocks = []
-    y_blocks = []
-
-    for i, (sample, tagged_seq) in enumerate(zip(data, tagged_seqs)):
-        if i % 50 == 0:
-            print(f"Processing gene structure {i+1}/{len(data)}")
-
-        tagged_arr = np.asarray(tagged_seq)
-        indices = np.where(tagged_arr >= 0)[0]  # Filter valid target indices exclusively (skip -1)
-
-        if len(indices) == 0:
-            continue
-
-        seq_onehot = transform_baseSeq_to_onehot(sample["sequence"])
-        seq_onehot = np.asarray(seq_onehot, dtype=np.float16)
-
-        X = extract_windows_numpy(seq_onehot, indices, window_size)
-        y = tagged_arr[indices].astype(np.int8)
-
-        X_blocks.append(X)
-        y_blocks.append(y)
-
-    print("Concatenating intermediate block arrays...")
-    X_final = np.concatenate(X_blocks, axis=0)
-    y_final = np.concatenate(y_blocks, axis=0)
-
-    # --- Step 2: Perform GLOBAL Undersampling/Balancing ---
-    print("Balancing dataset distribution globally...")
-    idx_exon   = np.where(y_final == 1)[0]
-    idx_intron = np.where(y_final == 0)[0]
-    min_len = min(len(idx_exon), len(idx_intron))
-
-    print(f"Total exons mapped: {len(idx_exon)}, Total introns mapped: {len(idx_intron)}, Slicing subset window size: {min_len} each")
-
-    idx_bal = np.concatenate([
-        np.random.choice(idx_exon,   min_len, replace=False),
-        np.random.choice(idx_intron, min_len, replace=False)
-    ])
-    np.random.shuffle(idx_bal)
-
-    X_final = X_final[idx_bal]
-    y_final = y_final[idx_bal]
-
-    print(f"Final resolved array shape for matrix X: {X_final.shape}")
-    print(f"Final resolved array shape for targets Y: {y_final.shape}")
-    gc.collect()
-
-    return X_final, y_final
-
-
-def modeling_train_data(data_filepath_input, XY_filepath_output):
-    data = pickle.load(open(data_filepath_input, "rb"))
-
-    # Extract target array segments safely
-    X_list, y_list = build_XY_dataset(data)
-
-    # Export using optimized zero-peak pipeline structure
-    save_XY_to_file(XY_filepath_output, X_list, y_list)
-
-    print("Data processing pipeline completed successfully!")
-    print("Degenerate nucleotides count: ", degenerate_bases_count)
-    print("Total sequence bases count: ", total_bases_count)
-
-    ratio_degenerate_nucleotides = (degenerate_bases_count / total_bases_count) * 100
-    print("Ratio of degenerate nucleotides: ", ratio_degenerate_nucleotides, "%")
-
-    return ratio_degenerate_nucleotides
-
-
-# ---------------------------------------------------------------------------
-# CORRECTED PIPELINE — Gene-level split + natural class distribution
-# ---------------------------------------------------------------------------
-
-def build_XY_from_gene_list(gene_list, window_size=120):
+def build_XY_from_gene_list(gene_list, window_size=120, stride=15):
     """
     Generate X, y dataset from a list of gene samples WITHOUT global
     undersampling, preserving the natural exon/intron class distribution.
-
-    Unlike build_XY_dataset, this function:
-      - Does NOT perform any 50/50 undersampling/balancing.
-      - Keeps all annotated positions (introns and exons) intact.
-      - Is designed to be called separately for train and validation
-        gene subsets, so windows from different splits never overlap.
-
-    Args:
-        gene_list  : list of dicts with keys 'sequence', 'exon_intervals',
-                     'intron_intervals' (standard sample format).
-        window_size: sliding window length in nucleotides (default: 120).
-
-    Returns:
-        X : np.ndarray of shape (N, window_size, 4), dtype float16
-        y : np.ndarray of shape (N,),               dtype int8
     """
     X_blocks = []
     y_blocks = []
@@ -301,6 +202,12 @@ def build_XY_from_gene_list(gene_list, window_size=120):
 
         # Only annotated positions (skip -1 UTR/flanking regions)
         indices = np.where(tagged_arr >= 0)[0]
+
+        # --- A MÁGICA DO STRIDE ENTRA AQUI ---
+        # Aplica o fatiamento para pegar 1 posição a cada X nucleotídeos
+        indices = indices[::stride]
+        # -------------------------------------
+
         if len(indices) == 0:
             continue
 
