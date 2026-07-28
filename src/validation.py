@@ -7,7 +7,7 @@ import modeling
 import numpy as np
 import pickle
 import keras
-from minineedle import needle
+from minineedle import needle # type: ignore
 
 def smooth_predict(predict_raw, window_size=6):
     half = window_size // 2

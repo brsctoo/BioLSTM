@@ -8,10 +8,7 @@ import numpy as np
 from tensorflow.keras.callbacks import EarlyStopping
 from lstm_model import create_model, BATCH_SIZE
 
-# Aumentamos para 100 épocas para dar total liberdade de aprendizado
-EPOCHS = 100
-
-def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_output):
+def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_output, epochs=100):
     """
     CORRECTED VERSION: trains using two separate .npz files produced by
     modeling.modeling_train_data_gene_split (gene-level split).
@@ -78,7 +75,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     history = lstm_model.fit(
         X_train,
         y_train,
-        epochs=EPOCHS,
+        epochs=epochs,
         batch_size=BATCH_SIZE,
         validation_data=(X_val, y_val),  # genes completely separated
         class_weight=class_weights,
@@ -88,8 +85,8 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
 
     print("\nModel training completed.\n")
     test_results = lstm_model.evaluate(X_val, y_val, verbose=2)  # type: ignore
-    print(f'\nValidation results -> Loss: {test_results[0]:.4f} | '
-          f'Accuracy: {100*test_results[1]:.2f}%\n')
+    print(f'\nValidation results -> Loss: {test_results[0]:.4f} | ' # type: ignore
+          f'Accuracy: {100*test_results[1]:.2f}%\n') # type: ignore
 
     lstm_model.save(result_filepath_output)
     print(f"Model saved to: {result_filepath_output}")

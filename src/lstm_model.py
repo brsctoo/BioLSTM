@@ -23,7 +23,12 @@ LSTM_UNITS = 60
 # Reduzido para 1e-4 para evitar que o modelo decore o treino muito rápido
 LEARNING_RATE = 1e-4
 VALIDATION_SPLIT = 0.2
-WINDOWS_SIZE = 400
+WINDOWS_SIZE = 400  # overridden by pipeline.py via set_window_size()
+
+def set_window_size(size: int) -> None:
+    """Called by pipeline.py to propagate --window-size into this module."""
+    global WINDOWS_SIZE
+    WINDOWS_SIZE = size
 
 # Alpha adicionado! Exons (1) recebem mais "peso" de atenção da rede do que Introns (0)
 LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
@@ -67,7 +72,7 @@ def create_model():
     Constrói a rede híbrida: CNN Dilatada + Bi-LSTM + Mecanismo de Atenção.
     Mantém a LSTM com capacidade máxima de focar nas partes críticas da janela de 400.
     """
-    inp = Input(shape=(400, 4))
+    inp = Input(shape=(WINDOWS_SIZE, 5))  # 4 canais One-Hot + 1 canal P(Éxon) do RF
 
     # --- 1. Frontend de CNN Dilatada (Contexto Amplo) ---
     x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp)

@@ -23,7 +23,7 @@ def fetch_genbank(query, output_filepath, max_records=500):
     record = Entrez.read(handle)
     handle.close()
 
-    total_count = int(record["Count"])
+    total_count = int(record["Count"]) # type: ignore
     print(f"Total matching records in GenBank: {total_count}")
 
     if total_count == 0:

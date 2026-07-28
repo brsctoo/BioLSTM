@@ -17,7 +17,7 @@ def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GEN
     print("Searching GenBank for a highly diverse random dataset...")
 
     handle = Entrez.esearch(db="nucleotide", term=QUERY_GENERAL, retmax=0)
-    total_count = int(Entrez.read(handle)["Count"])
+    total_count = int(Entrez.read(handle)["Count"]) # type: ignore
     handle.close()
 
     print(f"Total matching records in GenBank: {total_count}")
