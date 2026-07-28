@@ -19,11 +19,14 @@ EMBEDDING_DIM = 60
 EPOCHS = 10
 BATCH_SIZE = 100
 LSTM_UNITS = 60
-LEARNING_RATE = 5e-4
+
+# Reduzido para 1e-4 para evitar que o modelo decore o treino muito rápido
+LEARNING_RATE = 1e-4
 VALIDATION_SPLIT = 0.2
 WINDOWS_SIZE = 120
 
-LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0)
+# Alpha adicionado! Exons (1) recebem mais "peso" de atenção da rede do que Introns (0)
+LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
 OPTIMIZER = Adam(learning_rate=LEARNING_RATE)
 
 METRICS = [
@@ -55,25 +58,25 @@ def create_model():
     x = Conv1D(filters=128, kernel_size=16, padding='same', activation='relu')(x)
     x = BatchNormalization()(x)
     x = MaxPooling1D(pool_size=2)(x)
-    x = Dropout(0.2)(x)
+    x = Dropout(0.3)(x) # Aumentado de 0.2 para 0.3
 
     # --- Deep Bi-LSTM: Stacked layers for long directional context ---
     # 1ª Camada: Retorna sequências para alimentar a próxima camada recorrente
-    x = Bidirectional(LSTM(128, return_sequences=True, dropout=0.2))(x)
+    x = Bidirectional(LSTM(128, return_sequences=True, dropout=0.3))(x)
 
     # 2ª Camada: Processa o contexto aprofundado e compacta a saída
-    x = Bidirectional(LSTM(64, return_sequences=False, dropout=0.2))(x)
-    x = Dropout(0.4)(x)
+    x = Bidirectional(LSTM(64, return_sequences=False, dropout=0.3))(x)
+    x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5 (Regularização forte)
 
     # --- Classifier ---
     x = Dense(64, activation='relu')(x)
-    x = Dropout(0.4)(x)
+    x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5
     out = Dense(1, activation='sigmoid')(x)
 
     model = Model(inputs=inp, outputs=out)
 
     model.compile(
-        optimizer=Adam(learning_rate=3e-4),
+        optimizer=OPTIMIZER, # Usa a constante definida no topo (1e-4) unificando o lr
         loss=LOSS_FUNCTION,
         metrics=METRICS
     )
