@@ -80,37 +80,77 @@ def create_model():
     """
     Constrói o modelo híbrido atualizado com Convoluções Dilatadas e Blocos Residuais.
     """
-    inp = Input(shape=(WINDOWS_SIZE, 4))
+    inp = Input(shape=(WINDOWS_SIZE, 4)) #type: ignore
 
-    # --- Stem (Extração inicial de motifs locais GT-AG) ---
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp)
-    x = BatchNormalization()(x)
-
-    # --- Bloco Residual com Contexto Médio (Dilatação d=2) ---
-    x = residual_block(x, filters=64, kernel_size=5, dilation_rate=2)
-
-    # --- Bloco Residual com Contexto Amplo (Dilatação d=4) ---
-    x = residual_block(x, filters=128, kernel_size=5, dilation_rate=4)
-
-    x = MaxPooling1D(pool_size=2)(x)
-    x = Dropout(0.3)(x)
-
-    # --- Deep Bi-LSTM (Processa a sequência longa fornecida pelas CNNs dilatadas) ---
-    x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
-    x = Bidirectional(LSTM(32, return_sequences=False, dropout=0.3))(x)
-    x = Dropout(0.5)(x)
-
-    # --- Classificador Global da Janela ---
-    x = Dense(32, activation='relu')(x)
-    x = Dropout(0.5)(x)
-    out = Dense(1, activation='sigmoid')(x)
-
-    model = Model(inputs=inp, outputs=out)
-
-    model.compile(
-        optimizer=OPTIMIZER,
-        loss=LOSS_FUNCTION,
-        metrics=METRICS
+    # --- Stem (Extração inicialimport tensorflow as tf
+    from tensorflow.keras.layers import (
+        Conv1D, MaxPooling1D, BatchNormalization, Add,
+        Bidirectional, LSTM, Dense, Dropout, Input, Attention, GlobalAveragePooling1D
     )
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.optimizers import Adam
+    from tensorflow.keras.losses import BinaryFocalCrossentropy
 
-    return model
+    # ... (suas constantes e métricas continuam iguais) ...
+
+    def residual_block(x, filters, kernel_size, dilation_rate):
+        """Bloco residual com dilatação para ampliar o campo de visão da CNN."""
+        shortcut = x
+        fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(x)
+        fx = BatchNormalization()(fx)
+        fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(fx)
+        fx = BatchNormalization()(fx)
+
+        if shortcut.shape[-1] != filters:
+            shortcut = Conv1D(filters=filters, kernel_size=1, padding='same')(shortcut)
+
+        return Add()([shortcut, fx])
+
+    def create_model():
+        """
+        Constrói a rede híbrida: CNN Dilatada + Bi-LSTM + Mecanismo de Atenção.
+        Mantém a LSTM com capacidade máxima de focar nas partes críticas da janela de 400.
+        """
+        inp = Input(shape=(400, 4))
+
+        # --- 1. Frontend de CNN Dilatada (Contexto Amplo) ---
+        x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp)
+        x = BatchNormalization()(x)
+
+        x = residual_block(x, filters=64, kernel_size=5, dilation_rate=2)
+        x = residual_block(x, filters=128, kernel_size=5, dilation_rate=4)
+
+        x = MaxPooling1D(pool_size=2)(x)
+        x = Dropout(0.3)(x)
+
+        # --- 2. Bi-LSTM mantendo a sequência (return_sequences=True) ---
+        # Permite que a rede analise a direção completa dos dados comprimidos pela CNN
+        lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+
+        # --- 3. Camada de Atenção (O "Holofote") ---
+        # Ajuda a LSTM a focar exatamente nos trechos que diferenciam éxons de íntrons puros
+        attention_out = Attention()([lstm_out, lstm_out]) # Self-Attention
+
+        # Reduz o tensor mantendo a inteligência da atenção
+        x = GlobalAveragePooling1D()(attention_out)
+        x = Dropout(0.4)(x)
+
+        # --- 4. Classificador Final ---
+        x = Dense(32, activation='relu')(x)
+        x = Dropout(0.4)(x)
+        out = Dense(1, activation='sigmoid')(x)
+
+        model = Model(inputs=inp, outputs=out)
+
+        model.compile(
+            optimizer=Adam(learning_rate=1e-4),
+            loss=BinaryFocalCrossentropy(gamma=2.0, alpha=0.75),
+            metrics=[
+                'accuracy',
+                tf.keras.metrics.Precision(name='precision'),
+                tf.keras.metrics.Recall(name='recall'),
+                tf.keras.metrics.AUC(name='auc')
+            ]
+        )
+
+        return model
