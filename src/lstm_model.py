@@ -62,14 +62,14 @@ def create_model():
 
     # --- Deep Bi-LSTM: Stacked layers for long directional context ---
     # 1ª Camada: Retorna sequências para alimentar a próxima camada recorrente
-    x = Bidirectional(LSTM(128, return_sequences=True, dropout=0.3))(x)
+    x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
 
     # 2ª Camada: Processa o contexto aprofundado e compacta a saída
-    x = Bidirectional(LSTM(64, return_sequences=False, dropout=0.3))(x)
+    x = Bidirectional(LSTM(32, return_sequences=False, dropout=0.3))(x)
     x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5 (Regularização forte)
 
     # --- Classifier ---
-    x = Dense(64, activation='relu')(x)
+    x = Dense(32, activation='relu')(x)
     x = Dropout(0.5)(x) # Aumentado de 0.4 para 0.5
     out = Dense(1, activation='sigmoid')(x)
 
