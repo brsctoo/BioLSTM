@@ -3,6 +3,7 @@ Validation module to assess the trained Bi-LSTM model performance
 on the test dataset using alignment metrics and positional metrics.
 """
 
+import rf_model as rf_module
 import modeling
 import numpy as np
 import pickle
@@ -47,7 +48,21 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
-def validate_model(model_path, data_test):
+def validate_model(model_path, data_test, rf=None):
+    """
+    Valida o modelo Bi-LSTM no conjunto de teste.
+
+    Parâmetros
+    ----------
+    model_path : str
+        Caminho do modelo .h5 treinado.
+    data_test : str
+        Caminho do arquivo .mod1 de teste.
+    rf : RandomForestClassifier | None
+        Se fornecido, injeta P(Éxon) como 5º canal antes de cada predict,
+        igualando o shape ao que o modelo foi treinado (400, 5).
+        Se None, assume modelo antigo com entrada (400, 4).
+    """
     loaded_model = keras.models.load_model(model_path)
 
     # Assert model is not None to resolve Pyright's attribute inference warning
@@ -89,8 +104,12 @@ def validate_model(model_path, data_test):
             X.append(windows[j])
             Y.append(tagged_sequence[j])
 
-        X = np.array(X)
+        X = np.array(X)  # (N, 400, 4)
         Y = np.array(Y)
+
+        # Injeta canal do RF se o modelo foi treinado com entrada aumentada
+        if rf is not None:
+            X = rf_module.inject_rf_proba(rf, X)  # (N, 400, 5)
 
         predict_raw = (loaded_model.predict(X) > 0.5).astype("int32") # type: ignore
         predict_smoothed = smooth_predict(predict_raw, window_size=6)

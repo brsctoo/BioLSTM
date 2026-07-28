@@ -242,44 +242,46 @@ def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report):
 def inject_rf_proba(
     rf: RandomForestClassifier,
     one_hot: np.ndarray,
+    rf_scale: float = 0.15,
 ) -> np.ndarray:
     """
-    Gera um tensor aumentado (B, Window_Size, 5) onde o 5º canal em
-    cada posição da janela contém P(Éxon) predita pelo Random Forest.
+    Gera um tensor aumentado (B, Window_Size, 5) onde o 5º canal é
+    P(Éxon) do RF escalonada por rf_scale.
 
-    O RF opera sobre a janela INTEIRA (estatística global), produzindo
-    um escalar por amostra. Esse escalar é então replicado ao longo
-    de todo o eixo temporal da janela — informando ao LSTM a "confiança
-    global" do RF antes mesmo de processar a sequência.
+    Por que escalonar?
+    ------------------
+    Com rf_scale=1.0, a probabilidade do RF fica na faixa [0, 1], igual
+    aos canais One-Hot. Isso pode fazer a LSTM aprender a confiar demais
+    no RF e ignorar a sequência. Com rf_scale < 1 (ex: 0.15), o canal
+    vira um sinal de apoio suave — a rede usa-o como "dica" apenas quando
+    o sinal da sequência é ambíguo, sem substituir a análise temporal.
 
     Parâmetros
     ----------
     rf : RandomForestClassifier
-        Modelo RF já treinado por train_rf().
+        Modelo RF já treinado.
     one_hot : np.ndarray
         Tensor One-Hot de forma (Batch_Size, Window_Size, 4).
+    rf_scale : float
+        Fator de escala aplicado ao canal P(Éxon). Padrão 0.15.
+        0.0 = RF desligado. 1.0 = influência total (não recomendado).
 
     Retorna
     -------
     augmented : np.ndarray
         Tensor de forma (Batch_Size, Window_Size, 5), dtype float32.
-        Os 4 primeiros canais são o One-Hot original; o 5º é P(Éxon).
     """
     batch_size, window_size, _ = one_hot.shape
 
-    # Extrai features tabulares e obtém probabilidades do RF
-    X_tabular = build_feature_matrix(one_hot)
-    p_exon: np.ndarray = np.asarray(rf.predict_proba(X_tabular))[:, 1]
+    X_tabular = build_feature_matrix(one_hot)                           # (B, 65)
+    p_exon: np.ndarray = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
 
-    # Replica o escalar ao longo do eixo temporal e adiciona como 5º canal
-    # p_exon[:, np.newaxis, np.newaxis] → (B, 1, 1)
-    # np.broadcast_to → (B, Window_Size, 1)  (sem cópia)
+    # Escala o sinal do RF para que seja um apoio suave
     p_channel = np.broadcast_to(
-        p_exon[:, np.newaxis, np.newaxis],
+        (p_exon * rf_scale)[:, np.newaxis, np.newaxis],
         (batch_size, window_size, 1)
     ).astype(np.float32)
 
-    # Concatena ao longo do eixo dos canais: (B, W, 4) + (B, W, 1) → (B, W, 5)
     augmented = np.concatenate(
         [one_hot.astype(np.float32), p_channel],
         axis=2
@@ -288,7 +290,48 @@ def inject_rf_proba(
 
 
 # =============================================================================
-# 5. PIPELINE DE ALTO NÍVEL (chamado pelo pipeline.py)
+# 5. PERSISTÊNCIA DO MODELO RF (salvar / carregar)
+# =============================================================================
+
+def save_rf(rf: RandomForestClassifier, path: str) -> None:
+    """
+    Salva o modelo RF treinado em disco usando joblib.
+
+    Parâmetros
+    ----------
+    rf : RandomForestClassifier
+        Modelo treinado.
+    path : str
+        Caminho de destino (ex: '../assets/result/model_actin_fungi_rf.joblib').
+    """
+    import joblib
+    import os
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    joblib.dump(rf, path)
+    print(f"  [RF] Modelo salvo em: {path}")
+
+
+def load_rf(path: str) -> RandomForestClassifier:
+    """
+    Carrega um modelo RF previamente salvo por save_rf().
+
+    Parâmetros
+    ----------
+    path : str
+        Caminho do arquivo .joblib salvo.
+
+    Retorna
+    -------
+    rf : RandomForestClassifier
+    """
+    import joblib
+    rf: RandomForestClassifier = joblib.load(path)
+    print(f"  [RF] Modelo carregado de: {path}")
+    return rf
+
+
+# =============================================================================
+# 6. PIPELINE DE ALTO NÍVEL (chamado pelo pipeline.py)
 # =============================================================================
 
 def run_rf_pipeline(
