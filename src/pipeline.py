@@ -125,10 +125,11 @@ OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb"
 
 def get_output_paths(name):
     genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{name}")
-    mod1 = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
-    mod2 = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
-    result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
-    return genbank_input, mod1, mod2, result
+    mod1      = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
+    mod2      = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
+    result    = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
+    rf_result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_rf.joblib")
+    return genbank_input, mod1, mod2, result, rf_result
 
 
 def log_stage(msg):
@@ -194,7 +195,7 @@ def search_data_pipeline():
     log_stage("SEARCH — DONE.")
 
 def create_train_test_files(injection_rate, injection_mode, name, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
-    genbank_input, mod1, mod2, _ = get_output_paths(name)
+    genbank_input, mod1, mod2, _, _ = get_output_paths(name)
 
     # Derive separate paths for the two gene-level splits
     mod2_train = mod2.replace(".npz", "_train.npz")
@@ -229,7 +230,7 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
 
 
 def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
-    _, _, mod2, result = get_output_paths(name)
+    _, _, mod2, result, rf_result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
 
@@ -283,29 +284,33 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
 
+    # Salva o RF no disco para ser usado na fase de validação
+    rf_model.save_rf(trained_rf, rf_result)
+
 
 def validate_pipeline(name):
-    _, mod1, _, result = get_output_paths(name)
-
+    _, mod1, _, result, rf_result = get_output_paths(name)
 
     log_stage("VALIDATION — Loading model and test data")
     print("Model    :", result)
+    print("RF model :", rf_result)
     print("Test data:", mod1 + "_test.mod1")
-    validation.validate_model(result, mod1 + "_test.mod1")
+    trained_rf = rf_model.load_rf(rf_result)
+    validation.validate_model(result, mod1 + "_test.mod1", trained_rf)
     log_stage("VALIDATION — DONE.")
 
-
-
 def validate_specific_dataset(name):
-    _, _, _, result = get_output_paths(name)
+    _, _, _, result, rf_result = get_output_paths(name)
     specific_dataset = input("Enter the name of the dataset: ")
     specific_dataset = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{specific_dataset}")
 
     log_stage("VALIDATION (custom dataset) — Loading model and test data")
     print("Model    :", result)
     print("Test data:", specific_dataset + ".mod1")
-    validation.validate_model(result, specific_dataset + ".mod1")
+    trained_rf = rf_model.load_rf(rf_result)
+    validation.validate_model(result, specific_dataset + ".mod1", trained_rf)
     log_stage("VALIDATION — DONE.")
+
 
 
 def main():
