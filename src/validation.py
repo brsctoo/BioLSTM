@@ -63,7 +63,13 @@ def validate_model(model_path, data_test, rf=None):
         igualando o shape ao que o modelo foi treinado (400, 5).
         Se None, assume modelo antigo com entrada (400, 4).
     """
-    loaded_model = keras.models.load_model(model_path)
+    class SafeAttention(keras.layers.Attention):
+        def __init__(self, **kwargs):
+            if 'score_mode' in kwargs and callable(kwargs['score_mode']):
+                kwargs['score_mode'] = 'dot'
+            super().__init__(**kwargs)
+
+    loaded_model = keras.models.load_model(model_path, custom_objects={'Attention': SafeAttention})
 
     # Assert model is not None to resolve Pyright's attribute inference warning
     if loaded_model is None:
@@ -104,12 +110,19 @@ def validate_model(model_path, data_test, rf=None):
             X.append(windows[j])
             Y.append(tagged_sequence[j])
 
-        X = np.array(X)  # (N, 400, 4)
+        X = np.array(X)  # (N, W, 4)
         Y = np.array(Y)
 
-        # Injeta canal do RF se o modelo foi treinado com entrada aumentada
-        if rf is not None:
-            X = rf_module.inject_rf_proba(rf, X)  # (N, 400, 5)
+        # Checa quantos canais o modelo espera
+        expected_channels = loaded_model.input_shape[-1]
+
+        # Injeta canal do RF apenas se o modelo foi treinado com entrada aumentada (5 canais)
+        if rf is not None and expected_channels == 5:
+            X = rf_module.inject_rf_proba(rf, X)  # (N, W, 5)
+        elif expected_channels == 4:
+            pass # Mantém (N, W, 4)
+        else:
+            raise ValueError(f"Modelo espera {expected_channels} canais, mas o pipeline suporta apenas 4 ou 5.")
 
         predict_raw = (loaded_model.predict(X) > 0.5).astype("int32") # type: ignore
         predict_smoothed = smooth_predict(predict_raw, window_size=6)
@@ -146,17 +159,6 @@ def validate_model(model_path, data_test, rf=None):
 
             print(f"Alignment Identity: {identity:.4f}")
             final_metrics.append([identity])
-
-            # --- ERROR INSPECTION X-RAY ---
-            # If identity is below 60%, print visual x-ray details
-            # if identity < 0.60:
-                # print(f"\n[ERROR ALERT] Investigating failure (Identity: {identity*100:.1f}%)")
-                # print("Original Sequence : ", sample["sequence"])
-                # print("Predicted Sequence: ", "".join(final_seq))
-                # print("Real Sequence     : ", "".join(true_final_seq))
-            # --- END OF X-RAY ---
-
-    # print(final_metrics)
 
     q0, q1, q2, q3, q4, q5, q6, q7, q8, q9 = 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     total = 0
