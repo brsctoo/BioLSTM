@@ -78,12 +78,12 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
     return kmer_freq  # (Batch_Size, 16)
 
 
-def build_feature_matrix(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
+def build_feature_matrix(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
     Converte o tensor One-Hot 3D em uma matriz tabular 2D
     pronta para o Random Forest. Usa k=2 (17 features) ou k=3 (65 features).
     """
-    gc     = compute_gc_content(one_hot)            # (B, 1)
+    gc     = compute_gc_content(one_hot)             # (B, 1)
     kmers  = compute_kmer_frequencies(one_hot, k=k) # (B, 4^k)
     X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)
     return X
@@ -108,14 +108,14 @@ def train_rf(
     y_train: np.ndarray,
     *,
     n_estimators: int = 300,
-    max_depth: int = 8,
-    min_samples_split: int = 20,
-    min_samples_leaf: int = 10,
+    max_depth: int = None,
+    min_samples_split: int = 5,
+    min_samples_leaf: int = 2,
     random_state: int = 42,
 ) -> RandomForestClassifier:
     """
     Configura e treina o RandomForestClassifier.
-    Parâmetros restritos para forçar a generalização da assinatura global.
+    Árvores profundas (max_depth=None) para extrair regras complexas do Codon Usage.
     """
     model = RandomForestClassifier(
         n_estimators=n_estimators,
@@ -137,7 +137,7 @@ def train_rf(
 
 
 # =============================================================================
-# 3. AVALIAÇÃO
+# 3. AVALIAÇÃO E DIAGNÓSTICO
 # =============================================================================
 
 def evaluate_rf(
@@ -194,6 +194,57 @@ def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report):
     print(sep)
 
 
+def evaluate_rf_microscope(
+    model: RandomForestClassifier,
+    X_val: np.ndarray,
+    y_val_center: np.ndarray,
+    y_val_window: np.ndarray = None,
+    window_size: int = 120
+):
+    """
+    Diagnóstico detalhado do Random Forest separando o desempenho por tipo de janela.
+    """
+    print("\n" + "═" * 55)
+    print("  🔬 MICROSCÓPIO LOCAL — ANÁLISE POR TIPO DE JANELA")
+    print("═" * 55)
+
+    y_pred = model.predict(X_val)
+
+    if y_val_window is None:
+        print("  [Aviso] 'y_val_window' não fornecido no arquivo gerado. Recrie os dados (pipeline.py) para ver a análise de janelas puras.")
+        return
+
+    # 1. & 2. Criamos as máscaras booleanas REAIS garantindo que não haja bases -1 (desconhecidas) ou classes misturadas
+    # Janela 100% Íntron (absolutamente todos os 120 rótulos são 0)
+    idx_pure_intron = np.all(y_val_window == 0, axis=1)
+    
+    # Janela 100% Éxon (absolutamente todos os 120 rótulos são 1)
+    idx_pure_exon   = np.all(y_val_window == 1, axis=1)
+    
+    # Mistas (qualquer janela que não seja perfeitamente pura, inclui bordas de splicing e -1)
+    idx_mixed       = ~(idx_pure_intron | idx_pure_exon)
+
+    # 3. Função auxiliar para calcular e printar a acurácia de cada balde
+    def print_bucket_stats(name, mask):
+        total_in_bucket = np.sum(mask)
+        if total_in_bucket == 0:
+            print(f"  {name:<22}: 0 amostras neste conjunto.")
+            return
+
+        # Filtra as predições e os gabaritos reais usando a máscara
+        y_true_bucket = y_val_center[mask]
+        y_pred_bucket = y_pred[mask]
+
+        acc = accuracy_score(y_true_bucket, y_pred_bucket)
+        print(f"  {name:<22}: {acc * 100:>6.2f}% de Acurácia  (Total: {total_in_bucket} janelas)")
+
+    # 4. Resultados
+    print_bucket_stats("Janelas 100% Íntron", idx_pure_intron)
+    print_bucket_stats("Janelas 100% Éxon", idx_pure_exon)
+    print_bucket_stats("Janelas Mistas", idx_mixed)
+    print("═" * 55)
+
+
 # =============================================================================
 # 4. INJEÇÃO DE PROBABILIDADE RF NO TENSOR DO LSTM
 # =============================================================================
@@ -213,18 +264,16 @@ def inject_rf_proba(
     """
     batch_size, window_size, _ = one_hot.shape
 
-    # --- PROTEÇÃO CONTRA VAZAMENTO DE DADOS (TARGET LEAKAGE) ---
-    if is_training_set and hasattr(rf, 'oob_decision_function_'):
-        # No treino, usamos a matriz Out-of-Bag já computada pelo fit()
-        p_exon = rf.oob_decision_function_[:, 1]
-    else:
-        # Na validação/teste, fazemos a predição tabular
-        # Verifica quantas features o RF carregado espera (retrocompatibilidade)
-        expected_features = getattr(rf, "n_features_in_", 17)
-        k = 3 if expected_features == 65 else 2
+    # --- PROTEÇÃO CONTRA VAZAMENTO (REMOVIDA PARA LATE FUSION) ---
+    # No Late Fusion, a LSTM não enxerga a P(Éxon), apenas a camada Dense final.
+    # O Dropout aleatório abaixo já garante que a rede não fique viciada no RF.
+    # Portanto, podemos usar predict_proba em todo o dataset (mesmo nas mistas que o RF nunca viu no treino).
+    
+    expected_features = getattr(rf, "n_features_in_", 17)
+    k = 3 if expected_features == 65 else 2
 
-        X_tabular = build_feature_matrix(one_hot, k=k)
-        p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
+    X_tabular = build_feature_matrix(one_hot, k=k)
+    p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
 
     # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
     if apply_dropout:
@@ -278,23 +327,44 @@ def run_rf_pipeline(
     print("  [RF] Carregando dados de treino...")
     train_data  = np.load(mod2_train_path)
     X_train_ohe = train_data["X"].astype(np.float32)
-    y_train     = train_data["y"].astype(np.int32)
+    y_train = train_data["y"].astype(np.int32)
+    y_train_window = train_data["y_window"].astype(np.int8) if "y_window" in train_data else None
 
     print("  [RF] Carregando dados de validação...")
-    val_data   = np.load(mod2_val_path)
-    X_val_ohe  = val_data["X"].astype(np.float32)
-    y_val      = val_data["y"].astype(np.int32)
+    val_data = np.load(mod2_val_path)
+    X_val_ohe = val_data["X"].astype(np.float32)
+    y_val = val_data["y"].astype(np.int32)
+    y_val_window = val_data["y_window"].astype(np.int8) if "y_window" in val_data else None
+    
+    # --- FILTRO DE ESPECIALISTA: Treinar apenas com Janelas Puras ---
+    if y_train_window is not None:
+        idx_pure_intron = np.all(y_train_window == 0, axis=1)
+        idx_pure_exon   = np.all(y_train_window == 1, axis=1)
+        idx_pure_all    = idx_pure_intron | idx_pure_exon
+        
+        X_train_ohe_pure = X_train_ohe[idx_pure_all]
+        y_train_pure     = y_train[idx_pure_all]
+        print(f"  [RF] Especialização: Treinando apenas com janelas 100% puras ({len(y_train_pure)} amostras de {len(y_train)}).")
+    else:
+        X_train_ohe_pure = X_train_ohe
+        y_train_pure     = y_train
+        print("  [RF] Aviso: y_window ausente no treino, treinando com dados mistos.")
 
-    print(f"  [RF] Treino : {X_train_ohe.shape} | Rótulos: {y_train.shape}")
-    print(f"  [RF] Val    : {X_val_ohe.shape}   | Rótulos: {y_val.shape}")
+    print(f"  [RF] Treino (Puras) : {X_train_ohe_pure.shape} | Rótulos: {y_train_pure.shape}")
+    print(f"  [RF] Val (Total)    : {X_val_ohe.shape}   | Rótulos: {y_val.shape}")
 
-    print("  [RF] Extraindo features tabulares (17 por janela)...")
-    X_train = build_feature_matrix(X_train_ohe)  # (N_train, 17)
-    X_val   = build_feature_matrix(X_val_ohe)    # (N_val, 17)
+    print("  [RF] Extraindo features tabulares...")
+    X_train = build_feature_matrix(X_train_ohe_pure)  # (N_train_pure, K)
+    X_val   = build_feature_matrix(X_val_ohe)         # (N_val, K)
     print(f"  [RF] Feature matrix — treino: {X_train.shape} | val: {X_val.shape}")
 
-    rf = train_rf(X_train, y_train)
+    rf = train_rf(X_train, y_train_pure)
+
+    # Avaliação Global Original
     metrics = evaluate_rf(rf, X_val, y_val, verbose=True)
+
+    # Nova Avaliação pelo Microscópio (Usando a janela VERDADEIRA)
+    evaluate_rf_microscope(rf, X_val, y_val_center=y_val, y_val_window=y_val_window, window_size=X_val_ohe.shape[1])
 
     return metrics, rf
 
