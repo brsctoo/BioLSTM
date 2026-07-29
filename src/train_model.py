@@ -63,12 +63,11 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     print(f"Class weights -> intron (0): {weight_0:.4f} | exon (1): {weight_1:.4f}\n")
 
     # Configuração do Early Stopping rigoroso para o fluxo gene-split (paciência de 3 épocas)
-    early_stopping = EarlyStopping(
-        monitor='val_auc',
-        mode='max',
-        patience=10,
-        restore_best_weights=True,
-        verbose=1
+    early_stop = EarlyStopping(
+        monitor='val_loss',
+        mode='min',
+        patience=3,
+        restore_best_weights=True
     )
 
     # Train using validation_data with fully separated gene sets
@@ -80,7 +79,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         batch_size=BATCH_SIZE,
         validation_data=(X_val, y_val),  # genes completely separated
         class_weight=class_weights,
-        callbacks=[early_stopping],
+        callbacks=[early_stop],
         verbose=2  # type: ignore
     )
 

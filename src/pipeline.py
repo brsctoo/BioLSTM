@@ -126,9 +126,9 @@ OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb"
 
 def get_output_paths(name):
     genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{name}")
-    mod1      = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
-    mod2      = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
-    result    = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
+    mod1 = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
+    mod2 = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
+    result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_onehot.h5")
     rf_result = os.path.join(BASE_DIR, f"../assets/result/model_{name}_rf.joblib")
     return genbank_input, mod1, mod2, result, rf_result
 
@@ -260,7 +260,25 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
         data = np.load(src_path)
         X_ohe = data["X"].astype(np.float32)   # (N, W, 4)
         y = data["y"]
-        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe, rf_scale=rf_scale, apply_dropout=True)
+
+        # --- LÓGICA DE INJEÇÃO CORRIGIDA ---
+        if label == "treino":
+            # Treino: Ativa matriz OOB (evita vazamento) e Dropout (evita LSTM preguiçosa)
+            X_aug = rf_model.inject_rf_proba(
+                trained_rf, X_ohe,
+                rf_scale=rf_scale,
+                is_training_set=True,
+                apply_dropout=True
+            )
+        else:
+            # Validação: Usa probabilidade limpa e constante (sem Dropout e sem OOB)
+            X_aug = rf_model.inject_rf_proba(
+                trained_rf, X_ohe,
+                rf_scale=rf_scale,
+                is_training_set=False,
+                apply_dropout=False
+            )
+
         np.savez_compressed(dst_path, X=X_aug, y=y)
         print(f"  [AUG] {label}: {X_ohe.shape} → {X_aug.shape}  → salvo em {dst_path}")
     gc.collect()
@@ -301,8 +319,6 @@ def validate_specific_dataset(name):
     trained_rf = rf_model.load_rf(rf_result)
     validation.validate_model(result, specific_dataset + ".mod1", trained_rf)
     log_stage("VALIDATION — DONE.")
-
-
 
 def main():
     parser = argparse.ArgumentParser(description="Bi-LSTM Pipeline for Intron/Exon Identification")

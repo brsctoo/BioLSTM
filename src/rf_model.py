@@ -4,23 +4,15 @@ rf_model.py
 Random Forest classifier for Intron/Exon window classification.
 
 Atua como modelo auxiliar do Bi-LSTM: é treinado ANTES da rede neural e
-gera probabilidades por janela (predict_proba) que são injetadas como um
-5º canal no tensor One-Hot — enriquecendo a entrada do LSTM com a
-assinatura estatística global da janela.
+gera probabilidades por janela (predict_proba ou OOB) que são injetadas como
+um 5º canal no tensor One-Hot — enriquecendo a entrada da LSTM com a
+assinatura estatística global da janela (viés de dinucleotídeos e %GC).
 
 Convenção de canais One-Hot (de modeling.py / BASE_TO_VECTOR):
     índice 0 → A (Adenina)
     índice 1 → T (Timina)
     índice 2 → G (Guanina)
     índice 3 → C (Citosina)
-
-Public API
-----------
-build_feature_matrix(one_hot)                    -> np.ndarray  (B, 65)
-train_rf(X_train, y_train)                        -> RandomForestClassifier
-evaluate_rf(model, X_val, y_val)                  -> dict
-inject_rf_proba(rf, one_hot)                      -> np.ndarray  (B, 400, 5)
-run_rf_pipeline(mod2_train, mod2_val)             -> tuple[dict, RandomForestClassifier]
 """
 
 import os
@@ -42,18 +34,6 @@ from sklearn.metrics import (
 def compute_gc_content(one_hot: np.ndarray) -> np.ndarray:
     """
     Calcula o conteúdo percentual de G+C para cada janela do batch.
-
-    Parâmetros
-    ----------
-    one_hot : np.ndarray
-        Tensor One-Hot com forma (Batch_Size, Window_Size, 4).
-        Convenção de canais (de modeling.py/BASE_TO_VECTOR):
-            [A=0, T=1, G=2, C=3]
-
-    Retorna
-    -------
-    gc : np.ndarray
-        Vetor coluna (Batch_Size, 1) com o %GC de cada janela.
     """
     window_size = one_hot.shape[1]
 
@@ -68,12 +48,11 @@ def compute_gc_content(one_hot: np.ndarray) -> np.ndarray:
     return gc  # (Batch_Size, 1)
 
 
-def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
+def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
     """
     Calcula as frequências normalizadas dos 4^k k-mers para cada janela.
-
-    Usa janelas deslizantes via numpy.lib.stride_tricks.sliding_window_view
-    e codificação em base 4, eliminando loops Python para máxima performance.
+    Configurado por padrão para k=2 (Dinucleotídeos) para evitar matrizes
+    esparsas e overfitting em janelas curtas (ex: 120 bases).
     """
     n_kmers = 4 ** k
 
@@ -84,8 +63,8 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     kmer_windows = sliding_window_view(seq_indices, window_shape=k, axis=1)
     n_windows = kmer_windows.shape[1]
 
-    # Passo 3 — Conversão de cada trinca em um inteiro único (base 4)
-    powers = 4 ** np.arange(k - 1, -1, -1)           # (k,)
+    # Passo 3 — Conversão de cada sequência em um inteiro único (base 4)
+    powers = 4 ** np.arange(k - 1, -1, -1)             # (k,)
     kmer_indices = (kmer_windows * powers).sum(axis=2) # (B, n_windows)
 
     # Passo 4 — Contagem vetorizada via comparação booleana + soma
@@ -94,32 +73,30 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     ).astype(np.float32)
 
     # Passo 5 — Frequência relativa
-    kmer_freq = kmer_onehot.sum(axis=1) / n_windows   # (B, n_kmers)
+    kmer_freq = kmer_onehot.sum(axis=1) / n_windows    # (B, n_kmers)
 
-    return kmer_freq  # (Batch_Size, 64)
+    return kmer_freq  # (Batch_Size, 16)
 
 
 def build_feature_matrix(one_hot: np.ndarray) -> np.ndarray:
     """
-    Converte o tensor One-Hot 3D em uma matriz tabular 2D pronta para o
-    Random Forest.
+    Converte o tensor One-Hot 3D em uma matriz tabular 2D (17 features)
+    pronta para o Random Forest.
     """
-    gc     = compute_gc_content(one_hot)          # (B, 1)
-    kmers  = compute_kmer_frequencies(one_hot, k=3)  # (B, 64)
-    X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)  # (B, 65)
+    gc     = compute_gc_content(one_hot)            # (B, 1)
+    kmers  = compute_kmer_frequencies(one_hot, k=2) # (B, 16)
+    X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)  # (B, 17)
     return X
 
 
 def get_feature_names() -> list[str]:
     """
-    Retorna os nomes das 65 features na mesma ordem que build_feature_matrix.
-
-    Útil para plotar feature importances no relatório.
-    Ordem dos bases alinhada com BASE_TO_VECTOR: [A, T, G, C].
+    Retorna os nomes das 17 features na mesma ordem que build_feature_matrix.
+    Ordem das bases alinhada com BASE_TO_VECTOR: [A, T, G, C].
     """
-    bases = ["A", "T", "G", "C"]  # Ordem real do projeto (modeling.py)
-    kmer_names = [a + b + c for a in bases for b in bases for c in bases]
-    return ["%GC"] + kmer_names  # 1 + 64 = 65
+    bases = ["A", "T", "G", "C"]
+    kmer_names = [a + b for a in bases for b in bases]
+    return ["%GC"] + kmer_names  # 1 + 16 = 17
 
 
 # =============================================================================
@@ -130,44 +107,26 @@ def train_rf(
     X_train: np.ndarray,
     y_train: np.ndarray,
     *,
-    n_estimators: int = 500,
-    max_depth: int = 15,
-    min_samples_split: int = 10,
-    min_samples_leaf: int = 5,
+    n_estimators: int = 300,
+    max_depth: int = 8,
+    min_samples_split: int = 20,
+    min_samples_leaf: int = 10,
     random_state: int = 42,
 ) -> RandomForestClassifier:
     """
-    Configura e treina o RandomForestClassifier com hiperparâmetros
-    recomendados para dados biológicos com possível desbalanceamento
-    de classes.
-
-    Parâmetros
-    ----------
-    X_train : np.ndarray
-        Matriz tabular de treino (N_train, 65) gerada por build_feature_matrix.
-    y_train : np.ndarray
-        Vetor de rótulos de treino (N_train,) — 0=Íntron, 1=Éxon.
-    n_estimators : int
-        Número de árvores no ensemble (padrão 500).
-    max_depth : int
-        Profundidade máxima de cada árvore — principal controle de overfitting.
-    min_samples_split : int
-        Mínimo de amostras para dividir um nó interno.
-    min_samples_leaf : int
-        Mínimo de amostras em uma folha.
-    random_state : int
-        Semente para reprodutibilidade.
+    Configura e treina o RandomForestClassifier.
+    Parâmetros restritos para forçar a generalização da assinatura global.
     """
     model = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
         min_samples_split=min_samples_split,
         min_samples_leaf=min_samples_leaf,
-        max_features="sqrt",       # Diversidade entre árvores (padrão para classificação)
-        class_weight="balanced",   # Corrige desbalanceamento Íntron/Éxon automaticamente
-        oob_score=True,            # Estimativa gratuita de generalização (Out-of-Bag)
+        max_features="sqrt",
+        class_weight="balanced",
+        oob_score=True,            # Necessário para injeção sem Target Leakage
         random_state=random_state,
-        n_jobs=-1,                 # Paralelismo total: usa todos os núcleos de CPU
+        n_jobs=-1,
     )
 
     print(f"  [RF] Treinando RandomForest ({n_estimators} árvores, max_depth={max_depth})...")
@@ -242,27 +201,28 @@ def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report):
 def inject_rf_proba(
     rf: RandomForestClassifier,
     one_hot: np.ndarray,
-    rf_scale: float = 0.15,
+    rf_scale: float = 0.20,
+    is_training_set: bool = False,
     apply_dropout: bool = False,
     dropout_rate: float = 0.5
 ) -> np.ndarray:
     """
-    Gera um tensor aumentado (B, Window_Size, 5) onde o 5º canal é
-    P(Éxon) do RF escalonada por rf_scale.
-
-    Por que escalonar?
-    ------------------
-    Com rf_scale=1.0, a probabilidade do RF fica na faixa [0, 1], igual
-    aos canais One-Hot. Isso pode fazer a LSTM aprender a confiar demais
-    no RF e ignorar a sequência. Com rf_scale < 1 (ex: 0.15), o canal
-    vira um sinal de apoio suave — a rede usa-o como "dica" apenas quando
-    o sinal da sequência é ambíguo, sem substituir a análise temporal.
+    Gera um tensor aumentado (B, Window_Size, 5) com injeção de probabilidade.
+    Resolve Target Leakage usando oob_decision_function_ no treino.
+    Evita LSTM preguiçosa usando Dropout.
     """
     batch_size, window_size, _ = one_hot.shape
 
-    X_tabular = build_feature_matrix(one_hot)
-    p_exon: np.ndarray = np.asarray(rf.predict_proba(X_tabular))[:, 1]
+    # --- PROTEÇÃO CONTRA VAZAMENTO DE DADOS (TARGET LEAKAGE) ---
+    if is_training_set and hasattr(rf, 'oob_decision_function_'):
+        # No treino, usamos a matriz Out-of-Bag já computada pelo fit()
+        p_exon = rf.oob_decision_function_[:, 1]
+    else:
+        # Na validação/teste, fazemos a predição tabular clássica
+        X_tabular = build_feature_matrix(one_hot)
+        p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1]
 
+    # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
     if apply_dropout:
         mask = np.random.binomial(1, 1 - dropout_rate, size=p_exon.shape)
         p_exon = p_exon * mask
@@ -285,103 +245,58 @@ def inject_rf_proba(
 # =============================================================================
 
 def save_rf(rf: RandomForestClassifier, path: str) -> None:
-    """
-    Salva o modelo RF treinado em disco usando joblib.
-
-    Parâmetros
-    ----------
-    rf : RandomForestClassifier
-        Modelo treinado.
-    path : str
-        Caminho de destino (ex: '../assets/result/model_actin_fungi_rf.joblib').
-    """
     import joblib
-    import os
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     joblib.dump(rf, path)
     print(f"  [RF] Modelo salvo em: {path}")
 
 
-def load_rf(path: str) -> RandomForestClassifier:
-    """
-    Carrega um modelo RF previamente salvo por save_rf().
-
-    Parâmetros
-    ----------
-    path : str
-        Caminho do arquivo .joblib salvo.
-
-    Retorna
-    -------
-    rf : RandomForestClassifier
-    """
+def load_rf(path: str):
     import joblib
-    rf: RandomForestClassifier = joblib.load(path)
+    if not os.path.exists(path):
+        print(f"  [RF] Nenhum modelo RF encontrado em: {path} (Validação prosseguirá sem injeção)")
+        return None
+
+    rf = joblib.load(path)
     print(f"  [RF] Modelo carregado de: {path}")
     return rf
 
 
 # =============================================================================
-# 6. PIPELINE DE ALTO NÍVEL (chamado pelo pipeline.py)
+# 6. PIPELINE DE ALTO NÍVEL
 # =============================================================================
 
 def run_rf_pipeline(
     mod2_train_path: str,
     mod2_val_path: str,
 ) -> tuple[dict, RandomForestClassifier]:
-    """
-    Pipeline completo do Random Forest: carrega os dados já processados
-    (arquivos .npz do projeto), extrai features, treina e avalia.
 
-    Deve ser chamado ANTES do treinamento do LSTM. O modelo RF retornado
-    é usado por inject_rf_proba() para enriquecer o tensor de entrada do LSTM.
-
-    Parâmetros
-    ----------
-    mod2_train_path : str
-        Caminho para o .npz de treino gerado por modeling.py.
-        Chaves esperadas: 'X' (One-Hot tensor float16/32) e 'y' (rótulos int8).
-    mod2_val_path : str
-        Caminho para o .npz de validação (mesma estrutura).
-
-    Retorna
-    -------
-    metrics : dict
-        Dicionário com as métricas de validação (ver evaluate_rf).
-    rf_model : RandomForestClassifier
-        Modelo treinado, pronto para ser passado a inject_rf_proba().
-    """
-    # --- Carregamento dos dados ---
     print("  [RF] Carregando dados de treino...")
     train_data  = np.load(mod2_train_path)
-    X_train_ohe = train_data["X"].astype(np.float32)  # (N_train, 400, 4)
-    y_train     = train_data["y"].astype(np.int32)     # (N_train,)  — chave 'y' minúsculo
+    X_train_ohe = train_data["X"].astype(np.float32)
+    y_train     = train_data["y"].astype(np.int32)
 
     print("  [RF] Carregando dados de validação...")
     val_data   = np.load(mod2_val_path)
-    X_val_ohe  = val_data["X"].astype(np.float32)     # (N_val, 400, 4)
-    y_val      = val_data["y"].astype(np.int32)        # (N_val,)
+    X_val_ohe  = val_data["X"].astype(np.float32)
+    y_val      = val_data["y"].astype(np.int32)
 
     print(f"  [RF] Treino : {X_train_ohe.shape} | Rótulos: {y_train.shape}")
     print(f"  [RF] Val    : {X_val_ohe.shape}   | Rótulos: {y_val.shape}")
 
-    # --- Feature Engineering ---
-    print("  [RF] Extraindo features tabulares (65 por janela)...")
-    X_train = build_feature_matrix(X_train_ohe)  # (N_train, 65)
-    X_val   = build_feature_matrix(X_val_ohe)    # (N_val, 65)
+    print("  [RF] Extraindo features tabulares (17 por janela)...")
+    X_train = build_feature_matrix(X_train_ohe)  # (N_train, 17)
+    X_val   = build_feature_matrix(X_val_ohe)    # (N_val, 17)
     print(f"  [RF] Feature matrix — treino: {X_train.shape} | val: {X_val.shape}")
 
-    # --- Treinamento ---
     rf = train_rf(X_train, y_train)
-
-    # --- Avaliação standalone do RF ---
     metrics = evaluate_rf(rf, X_val, y_val, verbose=True)
 
     return metrics, rf
 
 
 # =============================================================================
-# 6. EXECUÇÃO DIRETA (para testes standalone)
+# 7. EXECUÇÃO DIRETA (para testes standalone)
 # =============================================================================
 
 if __name__ == "__main__":
@@ -401,8 +316,7 @@ if __name__ == "__main__":
     print(f"\n  Acurácia Final : {metrics['accuracy']*100:.2f}%")
     print(f"  F1 Éxon Final  : {metrics['f1_exon']*100:.2f}%")
 
-    # Demonstração da injeção de probabilidade (com dados sintéticos)
     print("\n  Testando inject_rf_proba com dados sintéticos...")
-    dummy = np.eye(4)[np.random.randint(0, 4, (5, 400))].astype(np.float32)
-    augmented = inject_rf_proba(rf, dummy)
-    print(f"  Tensor aumentado: {augmented.shape}  (esperado: (5, 400, 5))")
+    dummy = np.eye(4)[np.random.randint(0, 4, (5, 120))].astype(np.float32)
+    augmented = inject_rf_proba(rf, dummy, is_training_set=False, apply_dropout=False)
+    print(f"  Tensor aumentado: {augmented.shape}  (esperado: (5, 120, 5))")
