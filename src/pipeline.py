@@ -116,8 +116,8 @@ DEFAULT_INJECTION_RATE = 0.0
 DEFAULT_INJECTION_MODE = "conditioned"  # Options: conditioned | uniform | illumina | mixed
 DEFAULT_NAME = "actin_fungi"
 DEFAULT_SEED = 123865
-DEFAULT_WINDOW_SIZE = 400 
-DEFAULT_EPOCHS = 100     
+DEFAULT_WINDOW_SIZE = 400
+DEFAULT_EPOCHS = 100
 DEFAULT_RF_SCALE = 0.15   # influência do RF na entrada do LSTM [0.0 = desligado, 1.0 = total]
 
 GB_FILE_NAME = "all_proteins"
@@ -237,11 +237,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
 
     create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
 
-    # ------------------------------------------------------------------ #
-    # ETAPA 1: Random Forest (roda ANTES do LSTM)                         #
-    # Treina sobre as features estatísticas globais das janelas e gera    #
-    # P(Éxon) por janela, que será injetada como 5º canal no One-Hot.     #
-    # ------------------------------------------------------------------ #
+    # ETAPA 1: Random Forest
     log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
     rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val)
     log_stage(
@@ -251,11 +247,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     )
     gc.collect()
 
-    # ------------------------------------------------------------------ #
-    # ETAPA 2: Injeção de Probabilidade RF → Tensores Aumentados          #
-    # Os arquivos .npz originais (W, 4) são enriquecidos com o 5º canal   #
-    # de P(Éxon) → (W, 5) e salvos como arquivos _aug_train/val.npz.     #
-    # ------------------------------------------------------------------ #
+    # ETAPA 2: Injeção de Probabilidade RF
     log_stage(f"AUGMENTAÇÃO — Injetando P(Éxon) do RF como 5º canal (One-Hot → 5D, W={window_size})")
 
     mod2_train_aug = mod2.replace(".npz", "_aug_train.npz")
@@ -267,16 +259,14 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     ]:
         data = np.load(src_path)
         X_ohe = data["X"].astype(np.float32)   # (N, W, 4)
-        y     = data["y"]
-        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe, rf_scale=rf_scale)  # (N, W, 5)
+        y = data["y"]
+        X_aug = rf_model.inject_rf_proba(trained_rf, X_ohe, rf_scale=rf_scale, apply_dropout=True)
         np.savez_compressed(dst_path, X=X_aug, y=y)
         print(f"  [AUG] {label}: {X_ohe.shape} → {X_aug.shape}  → salvo em {dst_path}")
     gc.collect()
     log_stage("AUGMENTAÇÃO — DONE. Tensores (W, 5) salvos.")
 
-    # ------------------------------------------------------------------ #
-    # ETAPA 3: Bi-LSTM treinado sobre os tensores aumentados (W, 5)       #
-    # ------------------------------------------------------------------ #
+    # ETAPA 3: Bi-LSTM treinado sobre os tensores aumentados (W, 5)
     log_stage(f"TRAINING  (Bi-LSTM com entrada aumentada {window_size}×5, epochs={epochs})")
     print("Input train (aug):", mod2_train_aug)
     print("Input val   (aug):", mod2_val_aug)

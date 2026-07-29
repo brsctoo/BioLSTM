@@ -243,6 +243,8 @@ def inject_rf_proba(
     rf: RandomForestClassifier,
     one_hot: np.ndarray,
     rf_scale: float = 0.15,
+    apply_dropout: bool = False,
+    dropout_rate: float = 0.5
 ) -> np.ndarray:
     """
     Gera um tensor aumentado (B, Window_Size, 5) onde o 5º canal é
@@ -255,26 +257,15 @@ def inject_rf_proba(
     no RF e ignorar a sequência. Com rf_scale < 1 (ex: 0.15), o canal
     vira um sinal de apoio suave — a rede usa-o como "dica" apenas quando
     o sinal da sequência é ambíguo, sem substituir a análise temporal.
-
-    Parâmetros
-    ----------
-    rf : RandomForestClassifier
-        Modelo RF já treinado.
-    one_hot : np.ndarray
-        Tensor One-Hot de forma (Batch_Size, Window_Size, 4).
-    rf_scale : float
-        Fator de escala aplicado ao canal P(Éxon). Padrão 0.15.
-        0.0 = RF desligado. 1.0 = influência total (não recomendado).
-
-    Retorna
-    -------
-    augmented : np.ndarray
-        Tensor de forma (Batch_Size, Window_Size, 5), dtype float32.
     """
     batch_size, window_size, _ = one_hot.shape
 
-    X_tabular = build_feature_matrix(one_hot)                           # (B, 65)
-    p_exon: np.ndarray = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
+    X_tabular = build_feature_matrix(one_hot)
+    p_exon: np.ndarray = np.asarray(rf.predict_proba(X_tabular))[:, 1]
+
+    if apply_dropout:
+        mask = np.random.binomial(1, 1 - dropout_rate, size=p_exon.shape)
+        p_exon = p_exon * mask
 
     # Escala o sinal do RF para que seja um apoio suave
     p_channel = np.broadcast_to(
