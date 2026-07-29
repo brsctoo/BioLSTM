@@ -66,7 +66,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     early_stop = EarlyStopping(
         monitor='val_loss',
         mode='min',
-        patience=3,
+        patience=8,
         restore_best_weights=True
     )
 
