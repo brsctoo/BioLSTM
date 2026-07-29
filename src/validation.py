@@ -113,18 +113,29 @@ def validate_model(model_path, data_test, rf=None):
         X = np.array(X)  # (N, W, 4)
         Y = np.array(Y)
 
-        # Checa quantos canais o modelo espera
-        expected_channels = loaded_model.input_shape[-1]
-
-        # Injeta canal do RF apenas se o modelo foi treinado com entrada aumentada (5 canais)
-        if rf is not None and expected_channels == 5:
-            X = rf_module.inject_rf_proba(rf, X)  # (N, W, 5)
-        elif expected_channels == 4:
-            pass # Mantém (N, W, 4)
+        # --- VERIFICAÇÃO DE ARQUITETURA ---
+        # Checa se o modelo usa Late Fusion (tem múltiplas entradas)
+        if hasattr(loaded_model, 'inputs') and len(loaded_model.inputs) == 2:
+            X_dna = X
+            if rf is not None:
+                # Reaproveita a função de injeção, mas pega só a coluna de probabilidade
+                X_aug = rf_module.inject_rf_proba(rf, X)  # (N, W, 5)
+                X_rf = X_aug[:, 0, 4:]                    # (N, 1)
+            else:
+                X_rf = np.zeros((X.shape[0], 1))
+            X_inputs = {'dna_input': X_dna, 'rf_input': X_rf}
+        
         else:
-            raise ValueError(f"Modelo espera {expected_channels} canais, mas o pipeline suporta apenas 4 ou 5.")
+            # Modelo antigo (Early Fusion ou Baseline sem RF)
+            expected_channels = loaded_model.input_shape[-1]
+            if rf is not None and expected_channels == 5:
+                X_inputs = rf_module.inject_rf_proba(rf, X)  # (N, W, 5)
+            elif expected_channels == 4:
+                X_inputs = X                                 # (N, W, 4)
+            else:
+                raise ValueError(f"Modelo antigo espera {expected_channels} canais (não suportado).")
 
-        predict_raw = (loaded_model.predict(X) > 0.35).astype("int32") # type: ignore
+        predict_raw = (loaded_model.predict(X_inputs) > 0.40).astype("int32") # type: ignore
         predict_smoothed = smooth_predict(predict_raw, window_size=6)
 
         # ===== REQUESTED DEBUG BLOCK: % per position =====

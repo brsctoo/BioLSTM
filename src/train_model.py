@@ -70,21 +70,38 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         restore_best_weights=True
     )
 
-    # Train using validation_data with fully separated gene sets
-    # (NOT validation_split, which would re-contaminate from the same pool)
+    # --- PREPARO PARA LATE FUSION ---
+    # Fatiar o array (N, 120, 5) para alimentar as duas entradas da rede
+    if X_train.shape[-1] == 5:
+        X_train_dna = X_train[:, :, :4]
+        X_val_dna = X_val[:, :, :4]
+        # O valor do RF foi copiado 120 vezes; podemos pegar apenas a posição 0
+        X_train_rf = X_train[:, 0, 4:]  # (N, 1)
+        X_val_rf = X_val[:, 0, 4:]      # (N, 1)
+    else:
+        # Retrocompatibilidade se gerar arquivo com 4 canais
+        X_train_dna = X_train
+        X_val_dna = X_val
+        X_train_rf = np.zeros((X_train.shape[0], 1))
+        X_val_rf = np.zeros((X_val.shape[0], 1))
+
+    train_inputs = {'dna_input': X_train_dna, 'rf_input': X_train_rf}
+    val_inputs = {'dna_input': X_val_dna, 'rf_input': X_val_rf}
+
+    # Train using validation_data with fully separated gene set
     history = lstm_model.fit(
-        X_train,
+        train_inputs,
         y_train,
         epochs=epochs,
         batch_size=BATCH_SIZE,
-        validation_data=(X_val, y_val),  # genes completely separated
+        validation_data=(val_inputs, y_val), # type: ignore
         class_weight=class_weights,
         callbacks=[early_stop],
         verbose=2  # type: ignore
     )
 
     print("\nModel training completed.\n")
-    test_results = lstm_model.evaluate(X_val, y_val, verbose=2)  # type: ignore
+    test_results = lstm_model.evaluate(val_inputs, y_val, verbose=2)  # type: ignore
     print(f'\nValidation results -> Loss: {test_results[0]:.4f} | ' # type: ignore
           f'Accuracy: {100*test_results[1]:.2f}%\n') # type: ignore
 
