@@ -47,7 +47,7 @@ METRICS = [
 
 import tensorflow as tf
 from tensorflow.keras.layers import (
-    Conv1D, MaxPooling1D, BatchNormalization, Add,
+    Conv1D, MaxPooling1D, BatchNormalization, Add, Concatenate,
     Bidirectional, LSTM, Dense, Dropout, Input, Attention, GlobalAveragePooling1D
 )
 from tensorflow.keras.models import Model
@@ -72,10 +72,12 @@ def create_model():
     Constrói a rede híbrida: CNN Dilatada + Bi-LSTM + Mecanismo de Atenção.
     Mantém a LSTM com capacidade máxima de focar nas partes críticas da janela de 400.
     """
-    inp = Input(shape=(WINDOWS_SIZE, 5))  # 4 canais One-Hot + 1 canal P(Éxon) do RF
+    inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
+    inp_rf = Input(shape=(1,), name="rf_input")
 
     # --- 1. Frontend de CNN Dilatada (Contexto Amplo) ---
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp)
+    # A CNN roda apenas na sequência de DNA pura (4 canais)
+    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp_dna)
     x = BatchNormalization()(x)
 
     x = residual_block(x, filters=64, kernel_size=5, dilation_rate=2)
@@ -93,12 +95,16 @@ def create_model():
     x = GlobalAveragePooling1D()(attention_out) #Type: ignore
     x = Dropout(0.4)(x)
 
-    # --- 4. Classificador Final ---
-    x = Dense(32, activation='relu')(x)
+    # --- 4. Fusão Híbrida (Late Fusion) ---
+    # Junta a inteligência temporal (LSTM) com o palpite estatístico global (RF)
+    merged = Concatenate()([x, inp_rf])
+
+    # --- 5. Classificador Final (Juiz) ---
+    x = Dense(32, activation='relu')(merged)
     x = Dropout(0.4)(x)
     out = Dense(1, activation='sigmoid')(x)
 
-    model = Model(inputs=inp, outputs=out)
+    model = Model(inputs=[inp_dna, inp_rf], outputs=out)
 
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
