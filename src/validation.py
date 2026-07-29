@@ -124,7 +124,7 @@ def validate_model(model_path, data_test, rf=None):
         else:
             raise ValueError(f"Modelo espera {expected_channels} canais, mas o pipeline suporta apenas 4 ou 5.")
 
-        predict_raw = (loaded_model.predict(X) > 0.5).astype("int32") # type: ignore
+        predict_raw = (loaded_model.predict(X) > 0.35).astype("int32") # type: ignore
         predict_smoothed = smooth_predict(predict_raw, window_size=6)
 
         # ===== REQUESTED DEBUG BLOCK: % per position =====

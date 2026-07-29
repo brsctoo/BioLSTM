@@ -78,14 +78,14 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
     return kmer_freq  # (Batch_Size, 16)
 
 
-def build_feature_matrix(one_hot: np.ndarray) -> np.ndarray:
+def build_feature_matrix(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
     """
-    Converte o tensor One-Hot 3D em uma matriz tabular 2D (17 features)
-    pronta para o Random Forest.
+    Converte o tensor One-Hot 3D em uma matriz tabular 2D
+    pronta para o Random Forest. Usa k=2 (17 features) ou k=3 (65 features).
     """
     gc     = compute_gc_content(one_hot)            # (B, 1)
-    kmers  = compute_kmer_frequencies(one_hot, k=2) # (B, 16)
-    X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)  # (B, 17)
+    kmers  = compute_kmer_frequencies(one_hot, k=k) # (B, 4^k)
+    X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)
     return X
 
 
@@ -218,9 +218,13 @@ def inject_rf_proba(
         # No treino, usamos a matriz Out-of-Bag já computada pelo fit()
         p_exon = rf.oob_decision_function_[:, 1]
     else:
-        # Na validação/teste, fazemos a predição tabular clássica
-        X_tabular = build_feature_matrix(one_hot)
-        p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1]
+        # Na validação/teste, fazemos a predição tabular
+        # Verifica quantas features o RF carregado espera (retrocompatibilidade)
+        expected_features = getattr(rf, "n_features_in_", 17)
+        k = 3 if expected_features == 65 else 2
+
+        X_tabular = build_feature_matrix(one_hot, k=k)
+        p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
 
     # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
     if apply_dropout:
