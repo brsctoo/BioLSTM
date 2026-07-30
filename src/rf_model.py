@@ -174,6 +174,7 @@ def compute_fourier_period_3(one_hot: np.ndarray) -> np.ndarray:
     return score.astype(np.float32).reshape(-1, 1)
 
 
+
 def _single_scale(one_hot: np.ndarray, k: int) -> np.ndarray:
     """Bloco de features de UMA janela."""
     return np.concatenate([
@@ -215,12 +216,10 @@ def build_feature_matrix(one_hot: np.ndarray, k: int = 3,
 
 
 def get_feature_names(k: int = 3, two_scale: bool = True) -> list[str]:
+    import itertools
     """Nomes das features, na mesma ordem de build_feature_matrix."""
     bases = ["A", "T", "G", "C"]
-    if k == 2:
-        kmers = [a + b for a in bases for b in bases]
-    else:
-        kmers = [a + b + c for a in bases for b in bases for c in bases]
+    kmers = ["".join(p) for p in itertools.product(bases, repeat=k)]
 
     def block(prefix):
         n = [f"{prefix}%GC"]
@@ -607,7 +606,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--train", required=True, help="Caminho do .npz de treino.")
     parser.add_argument("--val", required=True, help="Caminho do .npz de validacao.")
-    parser.add_argument("--k", type=int, default=3, choices=[2, 3])
+    parser.add_argument("--k", type=int, default=3, choices=[2, 3, 4],
+                        help="Tamanho do k-mer (default: 3).")
     parser.add_argument("--single-scale", action="store_true",
                         help="Desliga as features de duas escalas (nao recomendado).")
     args = parser.parse_args()
