@@ -550,19 +550,52 @@ def run_rf_pipeline(
     print("  [RF] Carregando dados de treino...")
     train_data = np.load(mod2_train_path)
     X_train_ohe = train_data["X"].astype(np.float32)
-    y_train = train_data["y"].astype(np.int32)
-    y_train_window = (train_data["y_window"].astype(np.int8)
-                      if "y_window" in train_data else None)
+    y_train = train_data["y"]
+    if y_train.dtype == object:
+        y_train = np.stack(y_train)
+
+    if y_train.ndim >= 3:
+        y_train_window = y_train
+        y_train = y_train[:, y_train.shape[1] // 2]
+        if y_train.ndim > 1 and y_train.shape[-1] > 1:
+            y_train = np.argmax(y_train, axis=-1)
+    elif y_train.ndim == 2:
+        y_train_window = y_train.astype(np.int8)
+        y_train = y_train[:, y_train.shape[1] // 2].astype(np.int32)
+    else:
+        y_train = y_train.astype(np.int32)
+        y_train_window = (train_data["y_window"].astype(np.int8) if "y_window" in train_data else None)
+
+    if y_train.ndim > 1:
+        y_train = np.squeeze(y_train)
+    y_train = y_train.astype(np.int32)
 
     print("  [RF] Carregando dados de validacao...")
     val_data = np.load(mod2_val_path)
     X_val_ohe = val_data["X"].astype(np.float32)
-    y_val = val_data["y"].astype(np.int32)
-    y_val_window = (val_data["y_window"].astype(np.int8)
-                    if "y_window" in val_data else None)
+    
+    y_val = val_data["y"]
+    if y_val.dtype == object:
+        y_val = np.stack(y_val)
 
-    print(f"  [RF] Treino : {X_train_ohe.shape} | rotulos: {y_train.shape}")
-    print(f"  [RF] Val    : {X_val_ohe.shape} | rotulos: {y_val.shape}")
+    if y_val.ndim >= 3:
+        y_val_window = y_val
+        y_val = y_val[:, y_val.shape[1] // 2]
+        if y_val.ndim > 1 and y_val.shape[-1] > 1:
+            y_val = np.argmax(y_val, axis=-1)
+    elif y_val.ndim == 2:
+        y_val_window = y_val.astype(np.int8)
+        y_val = y_val[:, y_val.shape[1] // 2].astype(np.int32)
+    else:
+        y_val = y_val.astype(np.int32)
+        y_val_window = (val_data["y_window"].astype(np.int8) if "y_window" in val_data else None)
+
+    if y_val.ndim > 1:
+        y_val = np.squeeze(y_val)
+    y_val = y_val.astype(np.int32)
+
+    print(f"  [RF] Treino : {X_train_ohe.shape} | rotulos (centro): {y_train.shape}")
+    print(f"  [RF] Val    : {X_val_ohe.shape} | rotulos (centro): {y_val.shape}")
 
     if y_train_window is not None:
         pure = (np.all(y_train_window == 0, axis=1) |
