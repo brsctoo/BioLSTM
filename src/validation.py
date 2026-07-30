@@ -140,7 +140,7 @@ def validate_model(model_path, data_test, rf=None):
         elif isinstance(predictions, dict):
             predictions = predictions['final_out']
             
-        THRESHOLD     = 0.40   
+        THRESHOLD     = 0.65   
         SMOOTH_WINDOW = 20
 
         prob = np.asarray(predictions).flatten()             
