@@ -48,6 +48,7 @@ def create_model():
     Constrói a rede Seq2Seq: CNN (Local) + Bi-LSTM (Médio).
     O modelo recebe janelas de DNA e prediz Íntron/Éxon para CADA nucleotídeo (N, WINDOW_SIZE, 1).
     # Agora recebe 5 canais (4 do DNA One-Hot + 1 da probabilidade injetada pelo RF)
+    """
     inp_dna = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
 
     # --- 1. Frontend de CNN (Contexto Local) ---
