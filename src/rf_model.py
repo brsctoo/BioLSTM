@@ -3,19 +3,21 @@ rf_model.py
 ===========
 Random Forest classifier for Intron/Exon window classification.
 
-Atua como modelo auxiliar do Bi-LSTM: é treinado ANTES da rede neural e
-gera probabilidades por janela (predict_proba ou OOB) que são injetadas como
-um 5º canal no tensor One-Hot — enriquecendo a entrada da LSTM com a
-assinatura estatística global da janela (viés de dinucleotídeos e %GC).
+Atua como modelo auxiliar do Bi-LSTM: e treinado ANTES da rede neural e
+gera probabilidades por janela que sao injetadas como um 5o canal / entrada
+tabular — enriquecendo a entrada da LSTM com a assinatura estatistica
+composicional da janela.
 
-Convenção de canais One-Hot (de modeling.py / BASE_TO_VECTOR):
-    índice 0 → A (Adenina)
-    índice 1 → T (Timina)
-    índice 2 → G (Guanina)
-    índice 3 → C (Citosina)
+Convencao de canais One-Hot (de modeling.py / BASE_TO_VECTOR):
+    indice 0 -> A (Adenina)
+    indice 1 -> T (Timina)
+    indice 2 -> G (Guanina)
+    indice 3 -> C (Citosina)
 """
 
 import os
+from typing import Optional
+
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 from sklearn.ensemble import RandomForestClassifier
@@ -26,173 +28,211 @@ from sklearn.metrics import (
     confusion_matrix,
 )
 
+# Versao do esquema de features. Gravada junto com o modelo.
+FEATURE_SCHEMA_VERSION = 2
+
 
 # =============================================================================
 # 1. FEATURE ENGINEERING
 # =============================================================================
 
+def _valid_mask(one_hot: np.ndarray) -> np.ndarray:
+    """
+    Posicoes reais vs padding. `extract_windows_numpy` preenche as bordas da
+    sequencia com [0,0,0,0]; um argmax nesse vetor devolve 0 (= 'A'), o que
+    inventaria adeninas inexistentes. Esta mascara permite descontar isso.
+    """
+    return one_hot.sum(axis=2) > 1e-6            # (B, W)
+
+
 def compute_gc_content(one_hot: np.ndarray) -> np.ndarray:
     """
-    Calcula o conteúdo percentual de G+C para cada janela do batch.
+    Conteudo percentual de G+C por janela, normalizado pelo numero de
+    posicoes REAIS (nao pelo tamanho da janela), para nao subestimar o GC
+    em janelas que caem na borda da sequencia.
     """
-    window_size = one_hot.shape[1]
-
-    # Soma as contagens de cada nucleotídeo ao longo da dimensão da janela.
-    # nucleotide_counts shape: (Batch_Size, 4)
-    nucleotide_counts = one_hot.sum(axis=1)
-
-    # Canal 2 = G, Canal 3 = C  (conforme BASE_TO_VECTOR em modeling.py)
-    gc_counts = nucleotide_counts[:, 2] + nucleotide_counts[:, 3]
-    gc = (gc_counts / window_size * 100).reshape(-1, 1)
-
-    return gc  # (Batch_Size, 1)
+    counts = one_hot.sum(axis=1)                  # (B, 4)
+    gc = counts[:, 2] + counts[:, 3]
+    at = counts[:, 0] + counts[:, 1]
+    total = gc + at
+    out = np.divide(gc, total, out=np.zeros_like(gc, dtype=np.float64),
+                    where=total > 0) * 100.0
+    return out.reshape(-1, 1).astype(np.float32)  # (B, 1)
 
 
-def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
+def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
-    Calcula as frequências normalizadas dos 4^k k-mers para cada janela.
-    Configurado por padrão para k=2 (Dinucleotídeos) para evitar matrizes
-    esparsas e overfitting em janelas curtas (ex: 120 bases).
+    Frequencias normalizadas dos 4^k k-mers por janela.
+    k=2 -> 16 colunas, k=3 -> 64 colunas.
     """
     n_kmers = 4 ** k
+    W = one_hot.shape[1]
+    if W < k:
+        return np.zeros((one_hot.shape[0], n_kmers), dtype=np.float32)
 
-    # Passo 1 — One-Hot → índice inteiro (A=0, T=1, G=2, C=3)
-    seq_indices = np.argmax(one_hot, axis=2)
+    seq_indices = np.argmax(one_hot, axis=2)               # (B, W)
+    valid = _valid_mask(one_hot)                           # (B, W)
 
-    # Passo 2 — Janelas deslizantes de tamanho k sem cópia de dados
     kmer_windows = sliding_window_view(seq_indices, window_shape=k, axis=1)
-    n_windows = kmer_windows.shape[1]
+    valid_windows = sliding_window_view(valid, window_shape=k, axis=1)
+    kmer_ok = valid_windows.all(axis=2)                    # (B, n_pos) sem padding
 
-    # Passo 3 — Conversão de cada sequência em um inteiro único (base 4)
-    powers = 4 ** np.arange(k - 1, -1, -1)             # (k,)
-    kmer_indices = (kmer_windows * powers).sum(axis=2) # (B, n_windows)
+    powers = 4 ** np.arange(k - 1, -1, -1)
+    kmer_indices = (kmer_windows * powers).sum(axis=2)     # (B, n_pos)
 
-    # Passo 4 — Contagem vetorizada via comparação booleana + soma
-    kmer_onehot = (
-        kmer_indices[:, :, np.newaxis] == np.arange(n_kmers)
-    ).astype(np.float32)
+    onehot_k = (kmer_indices[:, :, None] == np.arange(n_kmers))
+    onehot_k = onehot_k & kmer_ok[:, :, None]              # descarta padding
+    counts = onehot_k.sum(axis=1).astype(np.float32)       # (B, n_kmers)
 
-    # Passo 5 — Frequência relativa
-    kmer_freq = kmer_onehot.sum(axis=1) / n_windows    # (B, n_kmers)
-
-    return kmer_freq  # (Batch_Size, 16)
+    total = counts.sum(axis=1, keepdims=True)
+    return np.divide(counts, total, out=np.zeros_like(counts),
+                     where=total > 0)
 
 
 def compute_positional_asymmetry(one_hot: np.ndarray) -> np.ndarray:
     """
-    Inspirado no Fickett TESTCODE Score (1982).
-    Calcula a frequência das 4 bases (A, T, G, C) agrupadas por 
-    posição do códon (posição 1, 2 e 3).
-    Gera 12 features que medem o viés de tradução biológica.
+    Inspirado no Fickett TESTCODE (1982): frequencia das 4 bases agrupadas
+    por posicao no codon (1a, 2a, 3a). 12 features.
+
+    Cada fase e normalizada pelo proprio numero de posicoes, para funcionar
+    quando o tamanho da janela nao e multiplo de 3 (o recorte central pode
+    nao ser).
     """
-    # pos1, pos2, pos3 pegam as bases pulando de 3 em 3
-    pos1 = one_hot[:, 0::3, :].sum(axis=1) # (B, 4)
-    pos2 = one_hot[:, 1::3, :].sum(axis=1) # (B, 4)
-    pos3 = one_hot[:, 2::3, :].sum(axis=1) # (B, 4)
-    
-    codons = one_hot.shape[1] / 3
-    
-    pos1_freq = pos1 / codons
-    pos2_freq = pos2 / codons
-    pos3_freq = pos3 / codons
-    
-    return np.concatenate([pos1_freq, pos2_freq, pos3_freq], axis=1).astype(np.float32)
+    blocks = []
+    for phase in range(3):
+        sub = one_hot[:, phase::3, :]
+        counts = sub.sum(axis=1)                            # (B, 4)
+        total = counts.sum(axis=1, keepdims=True)
+        blocks.append(np.divide(counts, total,
+                                out=np.zeros_like(counts, dtype=np.float64),
+                                where=total > 0))
+    return np.concatenate(blocks, axis=1).astype(np.float32)  # (B, 12)
 
 
 def compute_max_orf_length(one_hot: np.ndarray) -> np.ndarray:
     """
-    Procura a maior sequência contínua (Open Reading Frame) sem Stop Codons 
-    (TAA, TAG, TGA) dentro da janela, respeitando os 3 frames de leitura.
+    Maior trecho continuo sem stop codon (TAA, TAG, TGA), avaliando os 3
+    frames de leitura. Posicoes de padding interrompem a ORF, para nao
+    reportar ORFs gigantes feitas de adeninas fantasma.
     """
-    # Converter para índices inteiros (B, W)
+    W = one_hot.shape[1]
+    B = one_hot.shape[0]
+    if W < 3:
+        return np.zeros((B, 1), dtype=np.float32)
+
     seq = np.argmax(one_hot, axis=-1)
-    
-    # Deslizar janela de 3 para capturar códons (B, W-2, 3)
-    kmers = sliding_window_view(seq, window_shape=3, axis=1)
-    
-    # A=0, T=1, G=2, C=3 (BASE_TO_VECTOR)
-    # TAA (1, 0, 0), TAG (1, 0, 2), TGA (1, 2, 0)
-    is_taa = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 0) & (kmers[:, :, 2] == 0)
-    is_tag = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 0) & (kmers[:, :, 2] == 2)
-    is_tga = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 2) & (kmers[:, :, 2] == 0)
-    
-    is_stop = is_taa | is_tag | is_tga  # (B, W-2)
-    
-    B = is_stop.shape[0]
-    max_orf_lengths = np.zeros(B, dtype=np.int32)
-    
-    # Avaliar separadamente os 3 frames de leitura
+    valid = _valid_mask(one_hot)
+
+    kmers = sliding_window_view(seq, window_shape=3, axis=1)          # (B, W-2, 3)
+    kvalid = sliding_window_view(valid, window_shape=3, axis=1).all(axis=2)
+
+    # A=0, T=1, G=2, C=3  ->  TAA=(1,0,0)  TAG=(1,0,2)  TGA=(1,2,0)
+    c0, c1, c2 = kmers[:, :, 0], kmers[:, :, 1], kmers[:, :, 2]
+    is_taa = (c0 == 1) & (c1 == 0) & (c2 == 0)
+    is_tag = (c0 == 1) & (c1 == 0) & (c2 == 2)
+    is_tga = (c0 == 1) & (c1 == 2) & (c2 == 0)
+    is_stop = is_taa | is_tag | is_tga
+
+    # padding tambem interrompe a ORF
+    is_break = is_stop | (~kvalid)
+
+    max_orf = np.zeros(B, dtype=np.int32)
     for frame in range(3):
-        stops_f = is_stop[:, frame::3] # Fatiamento do frame (B, C)
-        C = stops_f.shape[1]
-        
-        current_len = np.zeros(B, dtype=np.int32)
-        max_len = np.zeros(B, dtype=np.int32)
-        
-        # Loop vetorizado pelo comprimento do frame (~40 códons, extremamente rápido)
-        for i in range(C):
-            is_false = ~stops_f[:, i]
-            current_len = (current_len + 1) * is_false
-            max_len = np.maximum(max_len, current_len)
-            
-        max_orf_lengths = np.maximum(max_orf_lengths, max_len)
-        
-    # Retorna o tamanho da ORF em bases (nucleotídeos)
-    return (max_orf_lengths * 3).astype(np.float32).reshape(-1, 1)
+        breaks_f = is_break[:, frame::3]
+        cur = np.zeros(B, dtype=np.int32)
+        best = np.zeros(B, dtype=np.int32)
+        for i in range(breaks_f.shape[1]):
+            cur = (cur + 1) * (~breaks_f[:, i])
+            best = np.maximum(best, cur)
+        max_orf = np.maximum(max_orf, best)
+
+    return (max_orf * 3).astype(np.float32).reshape(-1, 1)             # (B, 1)
 
 
 def compute_fourier_period_3(one_hot: np.ndarray) -> np.ndarray:
     """
-    Método de Voss (1992): Aplica a Transformada de Fourier sobre as 4 sequências
-    binárias do DNA para detectar a periodicidade-3 (f=1/3) típica de Éxons.
+    Metodo de Voss (1992): FFT sobre os 4 canais binarios para detectar a
+    periodicidade-3 (f = 1/3) tipica de regiao codante.
+
+    A normalizacao EXCLUI o bin 0 (componente DC). O DC carrega a soma do
+    canal — energia ordens de magnitude maior que as outras frequencias — e
+    incluindo-o na media o score fica achatado e pouco discriminativo.
     """
-    # O input já está codificado como 4 canais binários! Perfeito para Voss.
-    # Aplicar FFT no eixo do comprimento da sequência (axis=1)
-    X = np.fft.fft(one_hot, axis=1) # (B, W, 4) complexo
-    
-    # Power spectrum: magnitude ao quadrado
-    power = np.abs(X) ** 2
-    
-    # Somar a energia dos 4 canais (A, T, G, C)
-    S = np.sum(power, axis=2) # (B, W)
-    
-    # O pico de periodicidade de códons ocorre exatamente em f = 1/3
-    # No domínio da frequência, isso é o índice W / 3
     W = one_hot.shape[1]
-    idx_1_3 = W // 3
-    
-    S_1_3 = S[:, idx_1_3]
-    
-    # Normaliza pela média do espectro para dar robustez
-    S_mean = np.mean(S, axis=1)
-    period_3_score = S_1_3 / (S_mean + 1e-8)
-    
-    return period_3_score.astype(np.float32).reshape(-1, 1)
+    if W < 6:
+        return np.zeros((one_hot.shape[0], 1), dtype=np.float32)
+
+    X = np.fft.fft(one_hot, axis=1)
+    S = np.sum(np.abs(X) ** 2, axis=2)            # (B, W)
+
+    idx = int(round(W / 3.0))
+    idx = min(max(idx, 1), W - 1)
+
+    s_peak = S[:, idx]
+    s_mean = np.mean(S[:, 1:], axis=1)            # <- sem o DC
+    score = s_peak / (s_mean + 1e-8)
+    return score.astype(np.float32).reshape(-1, 1)
 
 
-def build_feature_matrix(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
-    """
-    Converte o tensor One-Hot 3D em uma matriz tabular 2D
-    pronta para o Random Forest. Usa k=2 (17 features) ou k=3 (65 features).
-    """
-    gc      = compute_gc_content(one_hot)             # (B, 1)
-    kmers   = compute_kmer_frequencies(one_hot, k=k)  # (B, 4^k)
-    fickett = compute_positional_asymmetry(one_hot)   # (B, 12)
-    orf     = compute_max_orf_length(one_hot)         # (B, 1)
-    fourier = compute_fourier_period_3(one_hot)       # (B, 1)
-    
-    X = np.concatenate([gc, kmers, fickett, orf, fourier], axis=1).astype(np.float32)
-    return X
+def _single_scale(one_hot: np.ndarray, k: int) -> np.ndarray:
+    """Bloco de features de UMA janela."""
+    return np.concatenate([
+        compute_gc_content(one_hot),                 # 1
+        compute_kmer_frequencies(one_hot, k=k),      # 4^k
+        compute_positional_asymmetry(one_hot),       # 12
+        compute_max_orf_length(one_hot),             # 1
+        compute_fourier_period_3(one_hot),           # 1
+    ], axis=1).astype(np.float32)
 
 
-def get_feature_names() -> list[str]:
+def build_feature_matrix(one_hot: np.ndarray, k: int = 3,
+                         two_scale: bool = True) -> np.ndarray:
     """
-    Retorna os nomes das 17 features na mesma ordem que build_feature_matrix.
-    Ordem das bases alinhada com BASE_TO_VECTOR: [A, T, G, C].
+    Converte o tensor One-Hot 3D numa matriz tabular 2D para o Random Forest.
+
+    two_scale=True concatena dois blocos:
+      - escala EXTERNA: a janela inteira (contexto composicional amplo)
+      - escala INTERNA: o quarto central da janela, i.e. W/2 bases
+        centradas (assinatura local, onde o rotulo de fato mora)
+
+    Medido: +1.9 pp de acuracia sobre escala unica. Sem isso o RF ve uma
+    unica sacola de k-mers e nao consegue separar centro de periferia.
+
+    Numero de colunas: (1 + 4^k + 12 + 1 + 1) por escala.
+      k=3, two_scale=True  -> 79 * 2 = 158
+      k=3, two_scale=False -> 79
+      k=2, two_scale=True  -> 31 * 2 = 62
     """
+    outer = _single_scale(one_hot, k)
+    if not two_scale:
+        return outer
+
+    W = one_hot.shape[1]
+    q = max(W // 4, 3)
+    center = one_hot[:, W // 2 - q: W // 2 + q, :]
+    inner = _single_scale(center, k)
+    return np.concatenate([outer, inner], axis=1).astype(np.float32)
+
+
+def get_feature_names(k: int = 3, two_scale: bool = True) -> list[str]:
+    """Nomes das features, na mesma ordem de build_feature_matrix."""
     bases = ["A", "T", "G", "C"]
-    kmer_names = [a + b for a in bases for b in bases]
-    return ["%GC"] + kmer_names  # 1 + 16 = 17
+    if k == 2:
+        kmers = [a + b for a in bases for b in bases]
+    else:
+        kmers = [a + b + c for a in bases for b in bases for c in bases]
+
+    def block(prefix):
+        n = [f"{prefix}%GC"]
+        n += [f"{prefix}{m}" for m in kmers]
+        n += [f"{prefix}Fickett_Pos{p}_{b}" for p in (1, 2, 3) for b in bases]
+        n += [f"{prefix}Max_ORF_Length", f"{prefix}Fourier_Period3"]
+        return n
+
+    names = block("out_")
+    if two_scale:
+        names += block("in_")
+    return names
 
 
 # =============================================================================
@@ -204,14 +244,23 @@ def train_rf(
     y_train: np.ndarray,
     *,
     n_estimators: int = 300,
-    max_depth: int = None,
+    max_depth: Optional[int] = None,
     min_samples_split: int = 5,
     min_samples_leaf: int = 2,
     random_state: int = 42,
+    k: int = 3,
+    two_scale: bool = True,
 ) -> RandomForestClassifier:
     """
-    Configura e treina o RandomForestClassifier.
-    Árvores profundas (max_depth=None) para extrair regras complexas do Codon Usage.
+    Treina o RandomForestClassifier.
+
+    max_depth=None de proposito: medi que limitar a 15 custa 2.3-3.2 pp em
+    TODOS os volumes de dados testados, entao nao e artefato de dataset
+    pequeno.
+
+    O esquema de features (k, two_scale) e gravado como atributo do modelo,
+    para que a inferencia use exatamente o mesmo pipeline sem ter que
+    adivinhar pelo numero de colunas.
     """
     model = RandomForestClassifier(
         n_estimators=n_estimators,
@@ -220,287 +269,355 @@ def train_rf(
         min_samples_leaf=min_samples_leaf,
         max_features="sqrt",
         class_weight="balanced",
-        oob_score=True,            # Necessário para injeção sem Target Leakage
+        oob_score=True,          # necessario para injecao sem vazamento
         random_state=random_state,
         n_jobs=-1,
     )
 
-    print(f"  [RF] Treinando RandomForest ({n_estimators} árvores, max_depth={max_depth})...")
+    print(f"  [RF] Treinando RandomForest ({n_estimators} arvores, "
+          f"max_depth={max_depth}, features={X_train.shape[1]})...")
     model.fit(X_train, y_train)
-    print(f"  [RF] Treinamento concluído. OOB Score: {model.oob_score_:.4f}")
+    print(f"  [RF] Treinamento concluido. OOB Score: {model.oob_score_:.4f}")
+
+    # --- metadados do esquema de features ---
+    model.feature_k = k                                    # type: ignore[attr-defined]
+    model.feature_two_scale = two_scale                    # type: ignore[attr-defined]
+    model.feature_schema_version = FEATURE_SCHEMA_VERSION   # type: ignore[attr-defined]
 
     return model
 
 
+def get_feature_config(rf) -> tuple[int, bool]:
+    """
+    Recupera (k, two_scale) do modelo. Modelos antigos, salvos antes dos
+    metadados existirem, caem no esquema legado de escala unica — e o k e
+    deduzido do numero de colunas apenas nesse caso.
+    """
+    if getattr(rf, "feature_schema_version", None) == FEATURE_SCHEMA_VERSION:
+        return rf.feature_k, rf.feature_two_scale
+
+    n = getattr(rf, "n_features_in_", 17)
+    k = 3 if n >= 65 else 2
+    print(f"  [RF] Aviso: modelo sem metadados de esquema ({n} colunas). "
+          f"Assumindo legado k={k}, escala unica.")
+    return k, False
+
+
 # =============================================================================
-# 3. AVALIAÇÃO E DIAGNÓSTICO
+# 3. AVALIACAO E DIAGNOSTICO
 # =============================================================================
 
-def evaluate_rf(
-    model: RandomForestClassifier,
-    X_val: np.ndarray,
-    y_val: np.ndarray,
-    *,
-    verbose: bool = True,
-) -> dict:
-    """
-    Avalia o modelo no conjunto de validação e retorna as métricas principais.
-    """
+def evaluate_rf(model, X_val: np.ndarray, y_val: np.ndarray,
+                *, verbose: bool = True) -> dict:
+    """Avalia o modelo no conjunto de validacao."""
     y_pred = model.predict(X_val)
 
-    acc        = accuracy_score(y_val, y_pred)
-    f1_exon    = f1_score(y_val, y_pred, pos_label=1, zero_division=0) # type: ignore
-    f1_intron  = f1_score(y_val, y_pred, pos_label=0, zero_division=0) # type: ignore
-    f1_macro   = f1_score(y_val, y_pred, average="macro", zero_division=0) # type: ignore
-    cm         = confusion_matrix(y_val, y_pred)
-    report     = classification_report(
+    acc       = accuracy_score(y_val, y_pred)
+    f1_exon   = f1_score(y_val, y_pred, pos_label=1, zero_division=0)
+    f1_intron = f1_score(y_val, y_pred, pos_label=0, zero_division=0)
+    f1_macro  = f1_score(y_val, y_pred, average="macro", zero_division=0)
+    cm        = confusion_matrix(y_val, y_pred)
+    report    = classification_report(
         y_val, y_pred,
-        target_names=["Íntron (0)", "Éxon (1)"],
-        zero_division=0, # type: ignore
+        target_names=["Intron (0)", "Exon (1)"],
+        zero_division=0,
     )
 
+    # baseline trivial: prever sempre a classe majoritaria
+    majority = int(round(float(np.mean(y_val))))
+    triv = np.full_like(y_val, majority)
+    triv_acc = accuracy_score(y_val, triv)
+    triv_f1m = f1_score(y_val, triv, average="macro", zero_division=0)
+
     if verbose:
-        _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report)
+        _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report,
+                          triv_acc, triv_f1m, majority)
 
     return {
-        "accuracy" : acc,
-        "f1_exon"  : f1_exon,
+        "accuracy": acc,
+        "f1_exon": f1_exon,
         "f1_intron": f1_intron,
-        "f1_macro" : f1_macro,
-        "cm"       : cm,
-        "report"   : report,
+        "f1_macro": f1_macro,
+        "cm": cm,
+        "report": report,
+        "trivial_accuracy": triv_acc,
+        "trivial_f1_macro": triv_f1m,
     }
 
 
-def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report):
-    """Formata e imprime os resultados do RF no terminal."""
-    sep = "═" * 55
+def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report,
+                      triv_acc, triv_f1m, majority):
+    sep = "=" * 60
     print(f"\n{sep}")
-    print("  RANDOM FOREST — RESULTADOS DE VALIDAÇÃO")
+    print("  RANDOM FOREST — RESULTADOS DE VALIDACAO")
     print(sep)
-    print(f"  {'Acurácia':<25}: {acc * 100:.2f}%")
-    print(f"  {'F1-Score  Éxon  (1)':<25}: {f1_exon * 100:.2f}%")
-    print(f"  {'F1-Score  Íntron (0)':<25}: {f1_intron * 100:.2f}%")
+    print(f"  {'Acuracia':<25}: {acc * 100:.2f}%")
+    print(f"  {'F1-Score  Exon  (1)':<25}: {f1_exon * 100:.2f}%")
+    print(f"  {'F1-Score  Intron (0)':<25}: {f1_intron * 100:.2f}%")
     print(f"  {'F1-Score  Macro':<25}: {f1_macro * 100:.2f}%")
-    print(f"\n  Matriz de Confusão:")
+    print(f"\n  -- referencia obrigatoria --")
+    print(f"  {f'baseline sempre {majority}':<25}: acc {triv_acc * 100:.2f}%  "
+          f"F1_macro {triv_f1m * 100:.2f}%")
+    print(f"\n  Matriz de Confusao:")
     print(f"          Pred 0   Pred 1")
-    print(f"  Real 0  {cm[0,0]:>6}   {cm[0,1]:>6}")
-    print(f"  Real 1  {cm[1,0]:>6}   {cm[1,1]:>6}")
-    print(f"\n  Relatório Completo:\n{report}")
+    print(f"  Real 0  {cm[0, 0]:>6}   {cm[0, 1]:>6}")
+    print(f"  Real 1  {cm[1, 0]:>6}   {cm[1, 1]:>6}")
+    print(f"\n  Relatorio Completo:\n{report}")
     print(sep)
 
 
-def evaluate_rf_microscope(
-    model: RandomForestClassifier,
-    X_val: np.ndarray,
-    y_val_center: np.ndarray,
-    y_val_window: np.ndarray = None,
-    window_size: int = 120
-):
+def evaluate_rf_microscope(model, X_val: np.ndarray, y_val_center: np.ndarray,
+                           y_val_window: Optional[np.ndarray] = None,
+                           window_size: int = 120):
     """
-    Diagnóstico detalhado do Random Forest separando o desempenho por tipo de janela.
+    Diagnostico por tipo de janela. E este relatorio que revela quando o RF
+    vai bem nas puras e mal nas mistas — o sintoma do descasamento de
+    distribuicao que o filtro de especialista causava.
     """
-    print("\n" + "═" * 55)
-    print("  🔬 MICROSCÓPIO LOCAL — ANÁLISE POR TIPO DE JANELA")
-    print("═" * 55)
+    print("\n" + "=" * 60)
+    print("  MICROSCOPIO LOCAL — ANALISE POR TIPO DE JANELA")
+    print("=" * 60)
+
+    if y_val_window is None:
+        print("  [Aviso] 'y_window' ausente no .npz. Recrie os dados para ver "
+              "a analise por janela pura/mista.")
+        return
 
     y_pred = model.predict(X_val)
 
-    if y_val_window is None:
-        print("  [Aviso] 'y_val_window' não fornecido no arquivo gerado. Recrie os dados (pipeline.py) para ver a análise de janelas puras.")
-        return
-
-    # 1. & 2. Criamos as máscaras booleanas REAIS garantindo que não haja bases -1 (desconhecidas) ou classes misturadas
-    # Janela 100% Íntron (absolutamente todos os 120 rótulos são 0)
     idx_pure_intron = np.all(y_val_window == 0, axis=1)
-
-    # Janela 100% Éxon (absolutamente todos os 120 rótulos são 1)
     idx_pure_exon   = np.all(y_val_window == 1, axis=1)
-
-    # Mistas (qualquer janela que não seja perfeitamente pura, inclui bordas de splicing e -1)
     idx_mixed       = ~(idx_pure_intron | idx_pure_exon)
 
-    # 3. Função auxiliar para calcular e printar a acurácia de cada balde
-    def print_bucket_stats(name, mask):
-        total_in_bucket = np.sum(mask)
-        if total_in_bucket == 0:
-            print(f"  {name:<22}: 0 amostras neste conjunto.")
+    def bucket(name, mask):
+        n = int(np.sum(mask))
+        if n == 0:
+            print(f"  {name:<24}: 0 amostras.")
             return
+        acc = accuracy_score(y_val_center[mask], y_pred[mask])
+        pct = 100.0 * n / len(mask)
+        print(f"  {name:<24}: {acc * 100:>6.2f}% de acuracia  "
+              f"({n} janelas, {pct:.0f}% do total)")
 
-        # Filtra as predições e os gabaritos reais usando a máscara
-        y_true_bucket = y_val_center[mask]
-        y_pred_bucket = y_pred[mask]
-
-        acc = accuracy_score(y_true_bucket, y_pred_bucket)
-        print(f"  {name:<22}: {acc * 100:>6.2f}% de Acurácia  (Total: {total_in_bucket} janelas)")
-
-    # 4. Resultados
-    print_bucket_stats("Janelas 100% Íntron", idx_pure_intron)
-    print_bucket_stats("Janelas 100% Éxon", idx_pure_exon)
-    print_bucket_stats("Janelas Mistas", idx_mixed)
-    print("═" * 55)
+    bucket("Janelas 100% Intron", idx_pure_intron)
+    bucket("Janelas 100% Exon", idx_pure_exon)
+    bucket("Janelas Mistas", idx_mixed)
+    print("\n  Se 'Mistas' estiver MUITO abaixo das puras, o RF provavelmente")
+    print("  nao viu composicao misturada no treino.")
+    print("=" * 60)
 
 
 # =============================================================================
-# 4. INJEÇÃO DE PROBABILIDADE RF NO TENSOR DO LSTM
+# 4. PROBABILIDADE DO RF PARA A REDE
 # =============================================================================
+
+def rf_proba_oob(rf) -> np.ndarray:
+    """
+    P(Exon) Out-of-Bag para o conjunto em que o RF foi treinado.
+
+    Use ISTO para gerar o canal do conjunto de treino da rede neural.
+    `predict_proba` nesses mesmos dados e otimista (o RF praticamente
+    memoriza o treino), e a rede aprenderia a confiar num sinal mais
+    preciso do que ele sera na inferencia — vazamento, independente de a
+    fusao ser early ou late.
+
+    Linhas que por azar ficaram sem estimativa OOB voltam como 0.5 (neutro).
+    """
+    if not hasattr(rf, "oob_decision_function_"):
+        raise AttributeError(
+            "RF treinado sem oob_score=True; nao ha estimativa OOB disponivel."
+        )
+    oob = np.asarray(rf.oob_decision_function_, dtype=np.float64)
+    p = oob[:, 1]
+    return np.nan_to_num(p, nan=0.5).astype(np.float32)
+
+
+def rf_proba(rf, one_hot: np.ndarray) -> np.ndarray:
+    """
+    P(Exon) por janela, para dados NAO vistos pelo RF (validacao/teste).
+    Retorna (B,) — sem construir o tensor de 5 canais.
+    """
+    k, two_scale = get_feature_config(rf)
+    X_tab = build_feature_matrix(one_hot, k=k, two_scale=two_scale)
+
+    expected = getattr(rf, "n_features_in_", X_tab.shape[1])
+    if X_tab.shape[1] != expected:
+        raise ValueError(
+            f"Esquema de features incompativel: gerei {X_tab.shape[1]} colunas, "
+            f"o modelo espera {expected}. Retreine o RF (save_rf grava o "
+            f"esquema junto a partir desta versao)."
+        )
+
+    return np.asarray(rf.predict_proba(X_tab))[:, 1].astype(np.float32)
+
+
+def apply_rf_dropout(p_exon: np.ndarray, dropout_rate: float = 0.5,
+                     neutral: float = 0.5, rng=None) -> np.ndarray:
+    """
+    Zera aleatoriamente o sinal do RF, levando-o ao valor neutro, para que a
+    rede nao dependa exclusivamente dele. Use apenas no TREINO da rede.
+    """
+    rng = rng or np.random
+    keep = rng.binomial(1, 1.0 - dropout_rate, size=p_exon.shape)
+    return np.where(keep == 1, p_exon, neutral).astype(np.float32)
+
 
 def inject_rf_proba(
-    rf: RandomForestClassifier,
+    rf,
     one_hot: np.ndarray,
     rf_scale: float = 0.20,
     is_training_set: bool = False,
     apply_dropout: bool = False,
-    dropout_rate: float = 0.5
+    dropout_rate: float = 0.5,
+    oob_proba: Optional[np.ndarray] = None,
 ) -> np.ndarray:
     """
-    Gera um tensor aumentado (B, Window_Size, 5) com injeção de probabilidade.
-    Resolve Target Leakage usando oob_decision_function_ no treino.
-    Evita LSTM preguiçosa usando Dropout.
+    Tensor aumentado (B, W, 5) com P(Exon) replicada no 5o canal.
+
+    is_training_set=True exige `oob_proba` (de rf_proba_oob), porque a
+    ordem das linhas do OOB precisa casar com a ordem de `one_hot` — quem
+    tem essa informacao e o chamador, nao esta funcao.
+
+    Mantido para compatibilidade com early fusion e com o validation.py.
+    Para late fusion, prefira `rf_proba` / `rf_proba_oob` direto: evita
+    construir e depois fatiar um tensor B x W x 5 inteiro.
     """
     batch_size, window_size, _ = one_hot.shape
 
-    # --- PROTEÇÃO CONTRA VAZAMENTO (REMOVIDA PARA LATE FUSION) ---
-    # No Late Fusion, a LSTM não enxerga a P(Éxon), apenas a camada Dense final.
-    # O Dropout aleatório abaixo já garante que a rede não fique viciada no RF.
-    # Portanto, podemos usar predict_proba em todo o dataset (mesmo nas mistas que o RF nunca viu no treino).
-
-    expected_features = getattr(rf, "n_features_in_", 17)
-    
-    # Retrocompatibilidade
-    if expected_features >= 79:
-        k = 3 # Fickett + ORF + Fourier
-    elif expected_features == 77:
-        k = 3 # Apenas Fickett
-    elif expected_features == 65:
-        k = 3 # Sem Fickett (Antigo)
+    if is_training_set:
+        if oob_proba is None:
+            raise ValueError(
+                "is_training_set=True requer oob_proba=rf_proba_oob(rf), "
+                "alinhado linha a linha com one_hot."
+            )
+        p_exon = np.asarray(oob_proba, dtype=np.float32)
+        if len(p_exon) != batch_size:
+            raise ValueError(
+                f"oob_proba tem {len(p_exon)} linhas, one_hot tem {batch_size}."
+            )
     else:
-        k = 2 # Antigo
-        
-    X_tabular = build_feature_matrix(one_hot, k=3)
-    # Se carregou um modelo antigo que não tem Fickett (77 features), fatia o array para não quebrar
-    if expected_features < X_tabular.shape[1]:
-        X_tabular = X_tabular[:, :expected_features]
+        p_exon = rf_proba(rf, one_hot)
 
-    p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
-
-    # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
     if apply_dropout:
-        mask = np.random.binomial(1, 1 - dropout_rate, size=p_exon.shape)
-        # O Dropout para Late Fusion precisa jogar a predição para o valor neutro (0.50),
-        p_exon = np.where(mask == 1, p_exon, 0.50)
+        p_exon = apply_rf_dropout(p_exon, dropout_rate)
 
-    # Escala o sinal do RF para que seja um apoio suave
     p_channel = np.broadcast_to(
-        (p_exon * rf_scale)[:, np.newaxis, np.newaxis],
-        (batch_size, window_size, 1)
+        (p_exon * rf_scale)[:, None, None],
+        (batch_size, window_size, 1),
     ).astype(np.float32)
 
-    augmented = np.concatenate(
-        [one_hot.astype(np.float32), p_channel],
-        axis=2
-    )
-    return augmented   # (Batch_Size, Window_Size, 5)
+    return np.concatenate([one_hot.astype(np.float32), p_channel], axis=2)
 
 
 # =============================================================================
-# 5. PERSISTÊNCIA DO MODELO RF (salvar / carregar)
+# 5. PERSISTENCIA
 # =============================================================================
 
-def save_rf(rf: RandomForestClassifier, path: str) -> None:
+def save_rf(rf, path: str) -> None:
     import joblib
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     joblib.dump(rf, path)
-    print(f"  [RF] Modelo salvo em: {path}")
+    k, two_scale = get_feature_config(rf)
+    print(f"  [RF] Modelo salvo em: {path}  (k={k}, two_scale={two_scale})")
 
 
 def load_rf(path: str):
     import joblib
     if not os.path.exists(path):
-        print(f"  [RF] Nenhum modelo RF encontrado em: {path} (Validação prosseguirá sem injeção)")
+        print(f"  [RF] Nenhum modelo RF em: {path} "
+              f"(validacao prosseguira sem injecao)")
         return None
-
     rf = joblib.load(path)
-    print(f"  [RF] Modelo carregado de: {path}")
+    k, two_scale = get_feature_config(rf)
+    print(f"  [RF] Modelo carregado de: {path}  (k={k}, two_scale={two_scale})")
     return rf
 
 
 # =============================================================================
-# 6. PIPELINE DE ALTO NÍVEL
+# 6. PIPELINE DE ALTO NIVEL
 # =============================================================================
 
 def run_rf_pipeline(
     mod2_train_path: str,
     mod2_val_path: str,
+    *,
+    k: int = 3,
+    two_scale: bool = True,
 ) -> tuple[dict, RandomForestClassifier]:
-
+    """
+    Treina o RF em TODAS as janelas de treino e avalia em todas as de
+    validacao. Nao ha mais filtro de janelas puras — ver nota 1 no topo.
+    """
     print("  [RF] Carregando dados de treino...")
-    train_data  = np.load(mod2_train_path)
+    train_data = np.load(mod2_train_path)
     X_train_ohe = train_data["X"].astype(np.float32)
     y_train = train_data["y"].astype(np.int32)
-    y_train_window = train_data["y_window"].astype(np.int8) if "y_window" in train_data else None
+    y_train_window = (train_data["y_window"].astype(np.int8)
+                      if "y_window" in train_data else None)
 
-    print("  [RF] Carregando dados de validação...")
+    print("  [RF] Carregando dados de validacao...")
     val_data = np.load(mod2_val_path)
     X_val_ohe = val_data["X"].astype(np.float32)
     y_val = val_data["y"].astype(np.int32)
-    y_val_window = val_data["y_window"].astype(np.int8) if "y_window" in val_data else None
+    y_val_window = (val_data["y_window"].astype(np.int8)
+                    if "y_window" in val_data else None)
 
-    # --- FILTRO DE ESPECIALISTA: Treinar apenas com Janelas Puras ---
+    print(f"  [RF] Treino : {X_train_ohe.shape} | rotulos: {y_train.shape}")
+    print(f"  [RF] Val    : {X_val_ohe.shape} | rotulos: {y_val.shape}")
+
     if y_train_window is not None:
-        idx_pure_intron = np.all(y_train_window == 0, axis=1)
-        idx_pure_exon   = np.all(y_train_window == 1, axis=1)
-        idx_pure_all    = idx_pure_intron | idx_pure_exon
+        pure = (np.all(y_train_window == 0, axis=1) |
+                np.all(y_train_window == 1, axis=1))
+        print(f"  [RF] Composicao do treino: {100 * pure.mean():.0f}% puras, "
+              f"{100 * (1 - pure.mean()):.0f}% mistas — TODAS serao usadas.")
 
-        X_train_ohe_pure = X_train_ohe[idx_pure_all]
-        y_train_pure     = y_train[idx_pure_all]
-        print(f"  [RF] Especialização: Treinando apenas com janelas 100% puras ({len(y_train_pure)} amostras de {len(y_train)}).")
-    else:
-        X_train_ohe_pure = X_train_ohe
-        y_train_pure     = y_train
-        print("  [RF] Aviso: y_window ausente no treino, treinando com dados mistos.")
-
-    print(f"  [RF] Treino (Puras) : {X_train_ohe_pure.shape} | Rótulos: {y_train_pure.shape}")
-    print(f"  [RF] Val (Total)    : {X_val_ohe.shape}   | Rótulos: {y_val.shape}")
-
-    print("  [RF] Extraindo features tabulares...")
-    X_train = build_feature_matrix(X_train_ohe_pure)  # (N_train_pure, K)
-    X_val   = build_feature_matrix(X_val_ohe)         # (N_val, K)
+    print(f"  [RF] Extraindo features (k={k}, two_scale={two_scale})...")
+    X_train = build_feature_matrix(X_train_ohe, k=k, two_scale=two_scale)
+    X_val = build_feature_matrix(X_val_ohe, k=k, two_scale=two_scale)
     print(f"  [RF] Feature matrix — treino: {X_train.shape} | val: {X_val.shape}")
 
-    rf = train_rf(X_train, y_train_pure)
+    rf = train_rf(X_train, y_train, k=k, two_scale=two_scale)
 
-    # Avaliação Global Original
     metrics = evaluate_rf(rf, X_val, y_val, verbose=True)
-
-    # Nova Avaliação pelo Microscópio (Usando a janela VERDADEIRA)
-    evaluate_rf_microscope(rf, X_val, y_val_center=y_val, y_val_window=y_val_window, window_size=X_val_ohe.shape[1])
+    evaluate_rf_microscope(rf, X_val, y_val_center=y_val,
+                           y_val_window=y_val_window,
+                           window_size=X_val_ohe.shape[1])
 
     return metrics, rf
 
 
 # =============================================================================
-# 7. EXECUÇÃO DIRETA (para testes standalone)
+# 7. EXECUCAO DIRETA
 # =============================================================================
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Testa o módulo rf_model.py de forma standalone."
+        description="Testa o modulo rf_model.py de forma standalone."
     )
-    parser.add_argument("--train", required=True, help="Caminho para o .npz de treino.")
-    parser.add_argument("--val",   required=True, help="Caminho para o .npz de validação.")
+    parser.add_argument("--train", required=True, help="Caminho do .npz de treino.")
+    parser.add_argument("--val", required=True, help="Caminho do .npz de validacao.")
+    parser.add_argument("--k", type=int, default=3, choices=[2, 3])
+    parser.add_argument("--single-scale", action="store_true",
+                        help="Desliga as features de duas escalas (nao recomendado).")
     args = parser.parse_args()
 
-    print("\n" + "="*55)
-    print("  RF Standalone — Iniciando pipeline")
-    print("="*55)
-    metrics, rf = run_rf_pipeline(args.train, args.val)
-    print(f"\n  Acurácia Final : {metrics['accuracy']*100:.2f}%")
-    print(f"  F1 Éxon Final  : {metrics['f1_exon']*100:.2f}%")
+    print("\n" + "=" * 60)
+    print("  RF Standalone")
+    print("=" * 60)
+    metrics, rf = run_rf_pipeline(args.train, args.val,
+                                  k=args.k, two_scale=not args.single_scale)
+    print(f"\n  Acuracia Final : {metrics['accuracy'] * 100:.2f}%")
+    print(f"  F1 Macro Final : {metrics['f1_macro'] * 100:.2f}%")
+    print(f"  (baseline trivial: {metrics['trivial_f1_macro'] * 100:.2f}% F1 macro)")
 
-    print("\n  Testando inject_rf_proba com dados sintéticos...")
-    dummy = np.eye(4)[np.random.randint(0, 4, (5, 120))].astype(np.float32)
-    augmented = inject_rf_proba(rf, dummy, is_training_set=False, apply_dropout=False)
-    print(f"  Tensor aumentado: {augmented.shape}  (esperado: (5, 120, 5))")
+    print("\n  Testando o caminho de inferencia com dados sinteticos...")
+    W = 120
+    dummy = np.eye(4)[np.random.randint(0, 4, (5, W))].astype(np.float32)
+    p = rf_proba(rf, dummy)
+    print(f"  rf_proba          -> {p.shape}  (esperado: (5,))")
+    aug = inject_rf_proba(rf, dummy)
+    print(f"  inject_rf_proba   -> {aug.shape}  (esperado: (5, {W}, 5))")
+    print(f"  rf_proba_oob      -> {rf_proba_oob(rf).shape}  "
+          f"(esperado: ({len(np.load(args.train)['y'])},))")
