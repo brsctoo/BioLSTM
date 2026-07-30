@@ -74,7 +74,7 @@ def create_model():
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
         loss={'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)},
-        sample_weight_mode='temporal', # Crucial para ignorar os -1 (UTR)
+        # Keras 3 deduz temporal weighting automaticamente pelo formato do sample_weight
         metrics={
             'final_out': [
                 'accuracy',
