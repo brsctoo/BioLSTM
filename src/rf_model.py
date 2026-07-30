@@ -78,6 +78,27 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 2) -> np.ndarray:
     return kmer_freq  # (Batch_Size, 16)
 
 
+def compute_positional_asymmetry(one_hot: np.ndarray) -> np.ndarray:
+    """
+    Inspirado no Fickett TESTCODE Score (1982).
+    Calcula a frequência das 4 bases (A, T, G, C) agrupadas por 
+    posição do códon (posição 1, 2 e 3).
+    Gera 12 features que medem o viés de tradução biológica.
+    """
+    # pos1, pos2, pos3 pegam as bases pulando de 3 em 3
+    pos1 = one_hot[:, 0::3, :].sum(axis=1) # (B, 4)
+    pos2 = one_hot[:, 1::3, :].sum(axis=1) # (B, 4)
+    pos3 = one_hot[:, 2::3, :].sum(axis=1) # (B, 4)
+    
+    codons = one_hot.shape[1] / 3
+    
+    pos1_freq = pos1 / codons
+    pos2_freq = pos2 / codons
+    pos3_freq = pos3 / codons
+    
+    return np.concatenate([pos1_freq, pos2_freq, pos3_freq], axis=1).astype(np.float32)
+
+
 def build_feature_matrix(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
     Converte o tensor One-Hot 3D em uma matriz tabular 2D
@@ -85,7 +106,8 @@ def build_feature_matrix(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
     gc     = compute_gc_content(one_hot)             # (B, 1)
     kmers  = compute_kmer_frequencies(one_hot, k=k) # (B, 4^k)
-    X      = np.concatenate([gc, kmers], axis=1).astype(np.float32)
+    fickett = compute_positional_asymmetry(one_hot)  # (B, 12)
+    X      = np.concatenate([gc, kmers, fickett], axis=1).astype(np.float32)
     return X
 
 
@@ -270,9 +292,20 @@ def inject_rf_proba(
     # Portanto, podemos usar predict_proba em todo o dataset (mesmo nas mistas que o RF nunca viu no treino).
 
     expected_features = getattr(rf, "n_features_in_", 17)
-    k = 3 if expected_features == 65 else 2
+    
+    # Retrocompatibilidade
+    if expected_features == 77:
+        k = 3 # Fickett incluído
+    elif expected_features == 65:
+        k = 3 # Sem Fickett (Antigo)
+    else:
+        k = 2 # Antigo
+        
+    X_tabular = build_feature_matrix(one_hot, k=3)
+    # Se carregou um modelo antigo que não tem Fickett (77 features), fatia o array para não quebrar
+    if expected_features < X_tabular.shape[1]:
+        X_tabular = X_tabular[:, :expected_features]
 
-    X_tabular = build_feature_matrix(one_hot, k=k)
     p_exon = np.asarray(rf.predict_proba(X_tabular))[:, 1] # (B,)
 
     # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
