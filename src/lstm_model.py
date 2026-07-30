@@ -45,63 +45,29 @@ def residual_block(x, filters, kernel_size):
 
 def create_model():
     """
-    Constrói a rede Seq2Seq híbrida: CNN (Local) + Bi-LSTM (Médio) + RF (Global via Late Fusion).
-    O modelo recebe janelas de DNA e prediz Íntron/Éxon para CADA nucleotídeo (N, WINDOW_SIZE, 1).
+    Teste de Sanidade: Modelo Seq2Seq MAIS SIMPLES POSSÍVEL.
+    Sem atenção, sem RF. Apenas CNN + Bi-LSTM + Dense.
     """
-    inp_dna = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
-    
-    # Separação do tensor de entrada (4 canais DNA, 1 canal RF)
-    # A CNN/LSTM vai trabalhar SÓ com o DNA. O RF entra no final (Late Fusion).
-    dna_only = tf.keras.layers.Lambda(lambda x: x[:, :, :4])(inp_dna)
-    rf_only = tf.keras.layers.Lambda(lambda x: x[:, :, 4:5])(inp_dna)
+    # Aceita 5 canais mas descarta o RF (canal 5)
+    inp = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
+    x = inp[:, :, :4]
 
     # --- 1. Frontend de CNN (Contexto Local) ---
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(dna_only)
-    x = BatchNormalization()(x)
-
-    x = residual_block(x, filters=64, kernel_size=5)
-    x = residual_block(x, filters=128, kernel_size=5)
-
-    x = Dropout(0.3)(x)
-
+    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(x)
+    x = BatchNormalization(momentum=0.9)(x)
+    
     # --- 2. Bi-LSTM Seq2Seq ---
-    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
-
-    # --- 3. Camada de Atenção (Foco nos sítios de splicing) ---
-    attn = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=32)(lstm_out, lstm_out)
-    x = Add()([lstm_out, attn])
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-
-    # --- 3.5 Saída Auxiliar da LSTM (DNA puro) ---
-    out_lstm = Dense(1, activation='sigmoid', name='aux_lstm_out')(x)
-
-    # --- 4. Fusão Híbrida (Late Fusion) ---
-    # Junta a inteligência temporal (LSTM) com o palpite estatístico global (RF)
-    # rf_only tem shape (N, WINDOW_SIZE, 1) pois foi replicado na entrada
-    merged = Concatenate()([x, rf_only])
-
-    # --- 5. Classificador Final ---
-    # Aplica Dense em cada step da sequência independentemente
-    x_dense = Dense(32, activation='relu')(merged)
-    x_dense = Dropout(0.3)(x_dense)
-    out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
-
-    model = Model(
-        inputs={'dna_input': inp_dna}, 
-        outputs={'aux_lstm_out': out_lstm, 'final_out': out_final}
-    )
-
+    x = Bidirectional(LSTM(32, return_sequences=True))(x)
+    x = BatchNormalization(momentum=0.9)(x)
+    
+    # --- 3. Classificador Final ---
+    out_final = Dense(1, activation='sigmoid', name='final_out')(x)
+    
+    model = Model(inputs={'dna_input': inp}, outputs={'final_out': out_final})
+    
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
-        loss={
-            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50),
-            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)
-        },
-        loss_weights={
-            'aux_lstm_out': 0.25, # Cabeça auxiliar funciona apenas como regularizador (DNA puro)
-            'final_out': 1.0 # O alvo principal da rede que vê o RF (Late Fusion)
-        },
+        loss={'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)},
         metrics={
             'final_out': [
                 'accuracy',
@@ -111,5 +77,4 @@ def create_model():
             ]
         }
     )
-
     return model

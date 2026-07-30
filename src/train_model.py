@@ -78,11 +78,11 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     y_train_clean = np.expand_dims(y_train_clean, -1)
     y_val_clean = np.expand_dims(y_val_clean, -1)
 
-    train_sample_weights = {'aux_lstm_out': sample_weights_arr, 'final_out': sample_weights_arr}
-    val_sample_weights = {'aux_lstm_out': val_sample_weights_arr, 'final_out': val_sample_weights_arr}
+    train_sample_weights = {'final_out': sample_weights_arr}
+    val_sample_weights = {'final_out': val_sample_weights_arr}
 
-    train_targets = {'aux_lstm_out': y_train_clean, 'final_out': y_train_clean}
-    val_targets = {'aux_lstm_out': y_val_clean, 'final_out': y_val_clean}
+    train_targets = {'final_out': y_train_clean}
+    val_targets = {'final_out': y_val_clean}
 
     # Configuração do Early Stopping rigoroso para o fluxo gene-split (paciência de 3 épocas)
     early_stop = EarlyStopping(
