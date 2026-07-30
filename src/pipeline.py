@@ -94,9 +94,6 @@ import numpy as np
 import genbank_searcher
 import genbank_reader
 import modeling
-import lstm_model
-import train_model
-import validation
 import rf_model
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -151,11 +148,15 @@ def set_global_seed(seed):
     """
     import random
     import numpy as np
-    import tensorflow as tf
 
     random.seed(seed)
     np.random.seed(seed)
-    tf.random.set_seed(seed)
+
+    try:
+        import tensorflow as tf
+        tf.random.set_seed(seed)
+    except ImportError:
+        pass
     os.environ["PYTHONHASHSEED"] = str(seed)
 
 
@@ -200,7 +201,7 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
 
     # Derive separate paths for the two gene-level splits
     mod2_train = mod2.replace(".npz", "_train.npz")
-    mod2_val   = mod2.replace(".npz", "_val.npz")
+    mod2_val = mod2.replace(".npz", "_val.npz")
 
     log_stage(f"PRE-PROCESSING  |  rate={injection_rate}  mode={injection_mode}  name={name}")
     print("Input .gb file:", genbank_input + ".gb")
@@ -230,12 +231,15 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
     return mod2_train, mod2_val
 
 
-def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, **injector_kwargs):
+def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, recreate_data=True, **injector_kwargs):
     _, _, mod2, result, rf_result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
 
-    create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
+    if recreate_data:
+        create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
+    else:
+        log_stage("PRE-PROCESSING/FEATURIZATION SKIPPED (recreate_data=False)")
 
     # ETAPA 1: Random Forest
     log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
@@ -289,7 +293,8 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     log_stage(f"TRAINING  (Bi-LSTM com entrada aumentada {window_size}×5, epochs={epochs})")
     print("Input train (aug):", mod2_train_aug)
     print("Input val   (aug):", mod2_val_aug)
-    print("Output model     :", result)
+    log_stage("TRAINING — Iniciando treinamento no Keras (Bi-LSTM)")
+    import train_model
     train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
@@ -299,6 +304,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
 
 
 def validate_pipeline(name, threshold=0.50):
+    import validation
     _, mod1, _, result, rf_result = get_output_paths(name)
 
     log_stage("VALIDATION — Loading model and test data")
@@ -310,6 +316,7 @@ def validate_pipeline(name, threshold=0.50):
     log_stage("VALIDATION — DONE.")
 
 def validate_specific_dataset(name):
+    import validation
     _, _, _, result, rf_result = get_output_paths(name)
     specific_dataset = input("Enter the name of the dataset: ")
     specific_dataset = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{specific_dataset}")
@@ -379,6 +386,10 @@ def main():
         help="Decision threshold for probability -> Intron(0)/Exon(1) class assignment. "
              "Default: 0.50")
 
+    parser.add_argument("--skip-data-generation", action="store_true",
+        help="Se ativada, o pipeline NÃO vai recriar os arquivos mod1/mod2 se usar 'train' ou 'full', "
+             "aproveitando os arquivos que já existem (Default: Recria os arquivos sempre).")
+
     args = parser.parse_args()
 
     injection_rate = args.injection_rate
@@ -389,6 +400,7 @@ def main():
     epochs      = args.epochs
     rf_scale    = args.rf_scale
     threshold   = args.threshold
+    recreate_data = not args.skip_data_generation
 
     injector_kwargs = build_injector_kwargs(injection_mode, args.alpha, args.illumina_mode)
 
@@ -396,7 +408,9 @@ def main():
 
     # Propaga window_size para todos os módulos que usam janelas
     modeling.set_window_size(window_size)
-    lstm_model.set_window_size(window_size)
+    if args.mode in ["train", "full"]:
+        import lstm_model
+        lstm_model.set_window_size(window_size)
 
     # If no mode was provided, show interactive menu
     if args.mode is None:
@@ -439,11 +453,11 @@ def main():
     if args.mode == "search_data":
         search_data_pipeline()
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, **injector_kwargs)
     elif args.mode == "test":
         validate_pipeline(name, threshold=threshold)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)
