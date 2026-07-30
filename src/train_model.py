@@ -88,6 +88,14 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     train_inputs = {'dna_input': X_train_dna, 'rf_input': X_train_rf}
     val_inputs = {'dna_input': X_val_dna, 'rf_input': X_val_rf}
 
+    # Para modelos com múltiplas saídas, o Keras não suporta `class_weight`.
+    # Precisamos converter para `sample_weight` e passar um dicionário.
+    sample_weights_arr = np.zeros_like(y_train, dtype=np.float32)
+    sample_weights_arr[y_train == 0] = weight_0
+    sample_weights_arr[y_train == 1] = weight_1
+
+    train_sample_weights = {'aux_lstm_out': sample_weights_arr, 'final_out': sample_weights_arr}
+
     train_targets = {'aux_lstm_out': y_train, 'final_out': y_train}
     val_targets = {'aux_lstm_out': y_val, 'final_out': y_val}
 
@@ -98,7 +106,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         epochs=epochs,
         batch_size=BATCH_SIZE,
         validation_data=(val_inputs, val_targets), # type: ignore
-        class_weight=class_weights,
+        sample_weight=train_sample_weights,
         callbacks=[early_stop],
         verbose=2  # type: ignore
     )
