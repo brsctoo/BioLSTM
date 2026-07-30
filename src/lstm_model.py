@@ -97,26 +97,38 @@ def create_model():
     x = GlobalAveragePooling1D()(attention_out) #Type: ignore
     x = Dropout(0.4)(x)
 
+    # --- 3.5 Saída Auxiliar da LSTM ---
+    out_lstm = Dense(1, activation='sigmoid', name='aux_lstm_out')(x)
+
     # --- 4. Fusão Híbrida (Late Fusion) ---
     # Junta a inteligência temporal (LSTM) com o palpite estatístico global (RF)
     merged = Concatenate()([x, inp_rf])
 
-    # --- 5. Classificador Final (Juiz) ---
-    x = Dense(16, activation='relu')(merged)
-    x = Dropout(0.4)(x)
-    out = Dense(1, activation='sigmoid')(x)
+    # --- 5. Classificador Final ---
+    x_dense = Dense(16, activation='relu')(merged)
+    x_dense = Dropout(0.4)(x_dense)
+    out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
 
-    model = Model(inputs=[inp_dna, inp_rf], outputs=out)
+    model = Model(inputs=[inp_dna, inp_rf], outputs=[out_lstm, out_final])
 
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
-        loss=BinaryFocalCrossentropy(gamma=2.0, alpha=0.75),
-        metrics=[
-            'accuracy',
-            tf.keras.metrics.Precision(name='precision'),
-            tf.keras.metrics.Recall(name='recall'),
-            tf.keras.metrics.AUC(name='auc')
-        ]
+        loss={
+            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.75),
+            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
+        },
+        loss_weights={
+            'aux_lstm_out': 0.6, # 60% do peso do erro vai para cobrar a LSTM
+            'final_out': 0.4 # 40% vai para o Juiz final que junta LSTM + RF
+        },
+        metrics={
+            'final_out': [
+                'accuracy',
+                tf.keras.metrics.Precision(name='precision'),
+                tf.keras.metrics.Recall(name='recall'),
+                tf.keras.metrics.AUC(name='auc')
+            ]
+        }
     )
 
     return model
