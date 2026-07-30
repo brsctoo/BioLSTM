@@ -53,25 +53,23 @@ def create_model():
 
     # --- 1. Frontend de CNN (Contexto Local) ---
     # A CNN roda apenas na sequência de DNA pura (4 canais) para encontrar pequenos motivos
-    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(inp_dna)
+    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
     x = BatchNormalization()(x)
 
-    # Filtros drasticamente reduzidos para combater Overfitting
-    x = residual_block(x, filters=32, kernel_size=5)
     x = residual_block(x, filters=64, kernel_size=5)
+    x = residual_block(x, filters=128, kernel_size=5)
 
-    x = MaxPooling1D(pool_size=2)(x)
-    x = Dropout(0.4)(x) # Dropout mais pesado
+    x = Dropout(0.3)(x) # Reduzido de 0.4 para 0.3
 
     # --- 2. Bi-LSTM mantendo a sequência (return_sequences=True) ---
-    # Dieta na memória temporal: caiu de 64 para 32 neurônios
-    lstm_out = Bidirectional(LSTM(32, return_sequences=True, dropout=0.4))(x)
+    # Capacidade restaurada de 32 para 64 neurônios, e com resolução espacial completa (sem MaxPooling)
+    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
 
     # --- 3. Camada de Atenção (O "Holofote") ---
     attention_out = Attention()([lstm_out, lstm_out]) #Type: ignore
 
     x = GlobalMaxPooling1D()(attention_out) #Type: ignore
-    x = Dropout(0.4)(x)
+    x = Dropout(0.3)(x)
 
     # --- 3.5 Saída Auxiliar da LSTM ---
     out_lstm = Dense(1, activation='sigmoid', name='aux_lstm_out')(x)
@@ -81,8 +79,8 @@ def create_model():
     merged = Concatenate()([x, inp_rf])
 
     # --- 5. Classificador Final ---
-    x_dense = Dense(16, activation='relu')(merged)
-    x_dense = Dropout(0.4)(x_dense)
+    x_dense = Dense(32, activation='relu')(merged)
+    x_dense = Dropout(0.3)(x_dense)
     out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
 
     model = Model(
