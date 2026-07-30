@@ -43,24 +43,42 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     X_val = np.array(val_data['X'], dtype=np.float32)
     y_val = np.array(val_data['y'], dtype=np.int32)
 
-    print(f"\n--- REAL dataset distribution (no artificial balancing) ---")
-    print(f"Train -> Exons: {np.sum(y_train==1):,} | Introns: {np.sum(y_train==0):,} | "
-          f"Exon proportion: {np.mean(y_train==1)*100:.1f}%")
-    print(f"Val     -> Exons: {np.sum(y_val==1):,}   | Introns: {np.sum(y_val==0):,}   | "
-          f"Exon proportion: {np.mean(y_val==1)*100:.1f}%")
-    print("----------------------------------------------------------\n")
-
-    # Compute class weights from the real training distribution
-    # BinaryFocalCrossentropy + class_weight are complementary:
-    # focal loss focuses gradient on hard samples; class_weight scales the
-    # gradient magnitude to counteract the raw class frequency imbalance.
-    total_samples = len(y_train)
+    print(f"\n--- REAL dataset distribution (Seq2Seq) ---")
     count_0 = np.sum(y_train == 0)  # introns
     count_1 = np.sum(y_train == 1)  # exons
-    weight_0 = total_samples / (2.0 * count_0)
-    weight_1 = total_samples / (2.0 * count_1)
-    class_weights = {0: float(weight_0), 1: float(weight_1)}
-    print(f"Class weights -> intron (0): {weight_0:.4f} | exon (1): {weight_1:.4f}\n")
+    total_valid = count_0 + count_1
+
+    print(f"Train -> Exons: {count_1:,} | Introns: {count_0:,} | "
+          f"Exon proportion: {count_1/total_valid*100:.1f}%")
+    print("----------------------------------------------------------\n")
+
+    weight_0 = total_valid / (2.0 * max(1, count_0))
+    weight_1 = total_valid / (2.0 * max(1, count_1))
+
+    X_train_dna = X_train[:, :, :4]
+    X_val_dna = X_val[:, :, :4]
+
+    train_inputs = {'dna_input': X_train_dna}
+    val_inputs = {'dna_input': X_val_dna}
+
+    # Criar sample weights temporais (N, WINDOW_SIZE)
+    sample_weights_arr = np.zeros_like(y_train, dtype=np.float32)
+    sample_weights_arr[y_train == 0] = weight_0
+    sample_weights_arr[y_train == 1] = weight_1
+    # y_train == -1 fica com peso 0 (ignorado)
+
+    # Evitar que a loss quebre com valores -1
+    y_train_clean = np.where(y_train == -1, 0, y_train)
+    y_val_clean = np.where(y_val == -1, 0, y_val)
+
+    # Adicionar dimensão final (N, WINDOW_SIZE, 1)
+    y_train_clean = np.expand_dims(y_train_clean, -1)
+    y_val_clean = np.expand_dims(y_val_clean, -1)
+
+    train_sample_weights = {'final_out': sample_weights_arr}
+
+    train_targets = {'final_out': y_train_clean}
+    val_targets = {'final_out': y_val_clean}
 
     # Configuração do Early Stopping rigoroso para o fluxo gene-split (paciência de 3 épocas)
     early_stop = EarlyStopping(
@@ -69,35 +87,6 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         patience=8,
         restore_best_weights=True
     )
-
-    # --- PREPARO PARA LATE FUSION ---
-    # Fatiar o array (N, 120, 5) para alimentar as duas entradas da rede
-    if X_train.shape[-1] == 5:
-        X_train_dna = X_train[:, :, :4]
-        X_val_dna = X_val[:, :, :4]
-        # O valor do RF foi copiado 120 vezes; podemos pegar apenas a posição 0
-        X_train_rf = X_train[:, 0, 4:]  # (N, 1)
-        X_val_rf = X_val[:, 0, 4:]      # (N, 1)
-    else:
-        # Retrocompatibilidade se gerar arquivo com 4 canais
-        X_train_dna = X_train
-        X_val_dna = X_val
-        X_train_rf = np.zeros((X_train.shape[0], 1))
-        X_val_rf = np.zeros((X_val.shape[0], 1))
-
-    train_inputs = {'dna_input': X_train_dna, 'rf_input': X_train_rf}
-    val_inputs = {'dna_input': X_val_dna, 'rf_input': X_val_rf}
-
-    # Para modelos com múltiplas saídas, o Keras não suporta `class_weight`.
-    # Precisamos converter para `sample_weight` e passar um dicionário.
-    sample_weights_arr = np.zeros_like(y_train, dtype=np.float32)
-    sample_weights_arr[y_train == 0] = weight_0
-    sample_weights_arr[y_train == 1] = weight_1
-
-    train_sample_weights = {'aux_lstm_out': sample_weights_arr, 'final_out': sample_weights_arr}
-
-    train_targets = {'aux_lstm_out': y_train, 'final_out': y_train}
-    val_targets = {'aux_lstm_out': y_val, 'final_out': y_val}
 
     # Train using validation_data with fully separated gene set
     history = lstm_model.fit(

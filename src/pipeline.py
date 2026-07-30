@@ -239,58 +239,17 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     if recreate_data:
         create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
     else:
-        log_stage("PRE-PROCESSING/FEATURIZATION SKIPPED (recreate_data=False)")
+        log_stage("PRE-PROCESSING/FEATURIZATION SKIPPED")
 
-    # ETAPA 1: Random Forest
-    log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
-    rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val)
-    log_stage(
-        f"RANDOM FOREST — DONE. "
-        f"Acurácia: {rf_metrics['accuracy']*100:.2f}% | "
-        f"F1 Éxon: {rf_metrics['f1_exon']*100:.2f}%"
-    )
-    gc.collect()
+    log_stage("RANDOM FOREST BYPASSED PARA SEQ2SEQ")
+    
+    # ETAPA 2: Augmentação BYPASSED (Seq2Seq puro)
+    log_stage("AUGMENTAÇÃO BYPASSED PARA SEQ2SEQ")
+    mod2_train_aug = mod2_train
+    mod2_val_aug   = mod2_val
 
-    # ETAPA 2: Injeção de Probabilidade RF
-    log_stage(f"AUGMENTAÇÃO — Injetando P(Éxon) do RF como 5º canal (One-Hot → 5D, W={window_size})")
-
-    mod2_train_aug = mod2.replace(".npz", "_aug_train.npz")
-    mod2_val_aug   = mod2.replace(".npz", "_aug_val.npz")
-
-    for src_path, dst_path, label in [
-        (mod2_train, mod2_train_aug, "treino"),
-        (mod2_val,   mod2_val_aug,   "validação"),
-    ]:
-        data = np.load(src_path)
-        X_ohe = data["X"].astype(np.float32)   # (N, W, 4)
-        y = data["y"]
-
-        # --- LÓGICA DE INJEÇÃO CORRIGIDA ---
-        if label == "treino":
-            # Treino: Ativa matriz OOB (evita vazamento) e Dropout
-            X_aug = rf_model.inject_rf_proba(
-                trained_rf, X_ohe,
-                rf_scale=rf_scale,
-                is_training_set=True,
-                apply_dropout=True,
-                oob_proba=rf_model.rf_proba_oob(trained_rf)
-            )
-        else:
-            # Validação: Usa probabilidade limpa e constante (sem Dropout e sem OOB)
-            X_aug = rf_model.inject_rf_proba(
-                trained_rf, X_ohe,
-                rf_scale=rf_scale,
-                is_training_set=False,
-                apply_dropout=False
-            )
-
-        np.savez_compressed(dst_path, X=X_aug, y=y)
-        print(f"  [AUG] {label}: {X_ohe.shape} → {X_aug.shape}  → salvo em {dst_path}")
-    gc.collect()
-    log_stage("AUGMENTAÇÃO — DONE. Tensores (W, 5) salvos.")
-
-    # ETAPA 3: Bi-LSTM treinado sobre os tensores aumentados (W, 5)
-    log_stage(f"TRAINING  (Bi-LSTM com entrada aumentada {window_size}×5, epochs={epochs})")
+    # ETAPA 3: Bi-LSTM treinado sobre as janelas cruas (W, 4)
+    log_stage(f"TRAINING  (Bi-LSTM Seq2Seq com entrada {window_size}×4, epochs={epochs})")
     print("Input train (aug):", mod2_train_aug)
     print("Input val   (aug):", mod2_val_aug)
     log_stage("TRAINING — Iniciando treinamento no Keras (Bi-LSTM)")
