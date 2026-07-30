@@ -298,7 +298,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     rf_model.save_rf(trained_rf, rf_result)
 
 
-def validate_pipeline(name):
+def validate_pipeline(name, threshold=0.50):
     _, mod1, _, result, rf_result = get_output_paths(name)
 
     log_stage("VALIDATION — Loading model and test data")
@@ -306,7 +306,7 @@ def validate_pipeline(name):
     print("RF model :", rf_result)
     print("Test data:", mod1 + "_test.mod1")
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, mod1 + "_test.mod1", trained_rf)
+    validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold)
     log_stage("VALIDATION — DONE.")
 
 def validate_specific_dataset(name):
@@ -375,6 +375,10 @@ def main():
              "0.0 = RF desligado, 1.0 = influência total. "
              f"Default: {DEFAULT_RF_SCALE}")
 
+    parser.add_argument("--threshold", type=float, default=0.50,
+        help="Decision threshold for probability -> Intron(0)/Exon(1) class assignment. "
+             "Default: 0.50")
+
     args = parser.parse_args()
 
     injection_rate = args.injection_rate
@@ -384,6 +388,7 @@ def main():
     window_size = args.window_size
     epochs      = args.epochs
     rf_scale    = args.rf_scale
+    threshold   = args.threshold
 
     injector_kwargs = build_injector_kwargs(injection_mode, args.alpha, args.illumina_mode)
 
@@ -412,6 +417,7 @@ def main():
         print(f"Window size: {window_size} (use --window-size to change)")
         print(f"Epochs: {epochs} (use --epochs to change)")
         print(f"RF scale: {rf_scale} (use --rf-scale to change)")
+        print(f"Threshold: {threshold} (use --threshold to change)")
         print(f"Seed: {seed} (use --seed to change)")
 
         choice = input("\nEnter the option number (0/1/2/3/4/5): ").strip()
@@ -435,12 +441,12 @@ def main():
     elif args.mode == "train":
         train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
     elif args.mode == "test":
-        validate_pipeline(name)
+        validate_pipeline(name, threshold=threshold)
     elif args.mode == "full":
         train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
-        validate_pipeline(name)
+        validate_pipeline(name, threshold=threshold)
     elif args.mode == "validate_specific_dataset":
         validate_specific_dataset(name)
     elif args.mode == "create_train_test_files":

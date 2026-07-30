@@ -48,7 +48,7 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
-def validate_model(model_path, data_test, rf=None):
+def validate_model(model_path, data_test, rf=None, threshold=0.50):
     """
     Valida o modelo Bi-LSTM no conjunto de teste.
 
@@ -140,7 +140,7 @@ def validate_model(model_path, data_test, rf=None):
         elif isinstance(predictions, dict):
             predictions = predictions['final_out']
             
-        THRESHOLD     = 0.65   
+        THRESHOLD     = threshold   
         SMOOTH_WINDOW = 20
 
         prob = np.asarray(predictions).flatten()             
