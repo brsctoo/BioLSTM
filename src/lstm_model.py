@@ -48,9 +48,9 @@ def create_model():
     Teste de Sanidade: Modelo Seq2Seq MAIS SIMPLES POSSÍVEL.
     Sem atenção, sem RF. Apenas CNN + Bi-LSTM + Dense.
     """
-    # Aceita 5 canais mas descarta o RF (canal 5)
-    inp = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
-    x = inp[:, :, :4]
+    # Apenas os 4 canais do DNA (A, T, C, G)
+    inp = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
+    x = inp
 
     # --- 1. Frontend de CNN (Contexto Local) ---
     x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(x)
@@ -66,7 +66,7 @@ def create_model():
     model = Model(inputs={'dna_input': inp}, outputs={'final_out': out_final})
     
     model.compile(
-        optimizer=Adam(learning_rate=1e-4),
+        optimizer=Adam(learning_rate=3e-4),
         loss={'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)},
         metrics={
             'final_out': [

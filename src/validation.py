@@ -69,6 +69,11 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
                 kwargs['score_mode'] = 'dot'
             super().__init__(**kwargs)
 
+    try:
+        keras.config.enable_unsafe_deserialization()
+    except AttributeError:
+        pass
+
     loaded_model = keras.models.load_model(model_path, custom_objects={'Attention': SafeAttention})
 
     # Assert model is not None to resolve Pyright's attribute inference warning

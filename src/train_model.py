@@ -5,7 +5,7 @@ The data_XY is a list of tuples: [(X, Y), ...], where X is the input sequence - 
 """
 
 import numpy as np
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
 from lstm_model import create_model, BATCH_SIZE
 
 def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_output, epochs=100):
@@ -55,7 +55,13 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     weight_0 = total_valid / (2.0 * max(1, count_0))
     weight_1 = total_valid / (2.0 * max(1, count_1))
 
-    # Se a pipeline injetou o RF, X_train terá 5 canais. Passamos todos para o modelo.
+    # Para o teste de sanidade, forçamos sempre 4 canais (DNA puro)
+    # Ignorando o 5º canal injetado pelo pipeline
+    if X_train.shape[-1] == 5:
+        X_train = X_train[:, :, :4]
+    if X_val.shape[-1] == 5:
+        X_val = X_val[:, :, :4]
+
     train_inputs = {'dna_input': X_train}
     val_inputs = {'dna_input': X_val}
 
@@ -84,15 +90,26 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     train_targets = {'final_out': y_train_clean}
     val_targets = {'final_out': y_val_clean}
 
-    # Configuração do Early Stopping rigoroso para o fluxo gene-split (paciência de 3 épocas)
-    early_stop = EarlyStopping(
-        monitor='val_loss',
-        mode='min',
-        patience=8,
-        restore_best_weights=True
+    # Configuração de Callbacks: ReduceLROnPlateau + EarlyStopping (monitorando val_auc)
+    # Obs: como a métrica é um dicionário no compile com o nome final_out, o Keras
+    # vai registrá-la como 'val_final_out_auc' durante o fit, então usaremos esse nome.
+    lr_scheduler = ReduceLROnPlateau(
+        monitor='val_final_out_auc',
+        mode='max',
+        factor=0.5,
+        patience=6,
+        verbose=1
     )
 
-    # Train using validation_data with fully separated gene set and sample weights
+    early_stop = EarlyStopping(
+        monitor='val_final_out_auc',
+        mode='max',
+        patience=15,
+        restore_best_weights=True,
+        verbose=1
+    )
+
+    # Train using validation_data with fully separated gene set
     history = lstm_model.fit(
         train_inputs,
         train_targets,
@@ -100,7 +117,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         batch_size=BATCH_SIZE,
         validation_data=(val_inputs, val_targets, val_sample_weights), # type: ignore
         sample_weight=train_sample_weights,
-        callbacks=[early_stop],
+        callbacks=[lr_scheduler, early_stop],
         verbose=2  # type: ignore
     )
 
