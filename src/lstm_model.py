@@ -52,7 +52,7 @@ def create_model():
     inp_dna = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
 
     # --- 1. Frontend de CNN (Contexto Local) ---
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
+    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(inp_dna)
     x = BatchNormalization()(x)
 
     x = residual_block(x, filters=64, kernel_size=5)
@@ -61,8 +61,8 @@ def create_model():
     x = Dropout(0.3)(x)
 
     # --- 2. Bi-LSTM Seq2Seq ---
-    x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
-    x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+    x = Bidirectional(LSTM(32, return_sequences=True, dropout=0.3))(x)
+    x = Bidirectional(LSTM(32, return_sequences=True, dropout=0.3))(x)
 
     # --- 2.5 Self-Attention (Foco nos sítios de splicing) ---
     attn = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=32)(x, x)
@@ -71,7 +71,7 @@ def create_model():
 
     # --- 3. Classificador Final ---
     # Aplica Dense em cada step da sequência independentemente (TimeDistributed nativo)
-    x = Dense(32, activation='relu')(x)
+    x = Dense(16, activation='relu')(x)
     x = Dropout(0.3)(x)
     out_final = Dense(1, activation='sigmoid', name='final_out')(x)
 
