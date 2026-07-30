@@ -217,10 +217,10 @@ def evaluate_rf_microscope(
     # 1. & 2. Criamos as máscaras booleanas REAIS garantindo que não haja bases -1 (desconhecidas) ou classes misturadas
     # Janela 100% Íntron (absolutamente todos os 120 rótulos são 0)
     idx_pure_intron = np.all(y_val_window == 0, axis=1)
-    
+
     # Janela 100% Éxon (absolutamente todos os 120 rótulos são 1)
     idx_pure_exon   = np.all(y_val_window == 1, axis=1)
-    
+
     # Mistas (qualquer janela que não seja perfeitamente pura, inclui bordas de splicing e -1)
     idx_mixed       = ~(idx_pure_intron | idx_pure_exon)
 
@@ -268,7 +268,7 @@ def inject_rf_proba(
     # No Late Fusion, a LSTM não enxerga a P(Éxon), apenas a camada Dense final.
     # O Dropout aleatório abaixo já garante que a rede não fique viciada no RF.
     # Portanto, podemos usar predict_proba em todo o dataset (mesmo nas mistas que o RF nunca viu no treino).
-    
+
     expected_features = getattr(rf, "n_features_in_", 17)
     k = 3 if expected_features == 65 else 2
 
@@ -278,7 +278,8 @@ def inject_rf_proba(
     # --- PROTEÇÃO CONTRA MODELO "PREGUIÇOSO" (DROPOUT) ---
     if apply_dropout:
         mask = np.random.binomial(1, 1 - dropout_rate, size=p_exon.shape)
-        p_exon = p_exon * mask
+        # O Dropout para Late Fusion precisa jogar a predição para o valor neutro (0.50),
+        p_exon = np.where(mask == 1, p_exon, 0.50)
 
     # Escala o sinal do RF para que seja um apoio suave
     p_channel = np.broadcast_to(
@@ -335,13 +336,13 @@ def run_rf_pipeline(
     X_val_ohe = val_data["X"].astype(np.float32)
     y_val = val_data["y"].astype(np.int32)
     y_val_window = val_data["y_window"].astype(np.int8) if "y_window" in val_data else None
-    
+
     # --- FILTRO DE ESPECIALISTA: Treinar apenas com Janelas Puras ---
     if y_train_window is not None:
         idx_pure_intron = np.all(y_train_window == 0, axis=1)
         idx_pure_exon   = np.all(y_train_window == 1, axis=1)
         idx_pure_all    = idx_pure_intron | idx_pure_exon
-        
+
         X_train_ohe_pure = X_train_ohe[idx_pure_all]
         y_train_pure     = y_train[idx_pure_all]
         print(f"  [RF] Especialização: Treinando apenas com janelas 100% puras ({len(y_train_pure)} amostras de {len(y_train)}).")
