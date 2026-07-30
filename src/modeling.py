@@ -215,7 +215,7 @@ def extract_balanced_windows(sample, tagged_seq, window_size=None):
 
     return X, y
 
-def build_XY_from_gene_list(gene_list, window_size=None, stride=15):
+def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
     """
     Generate X, y dataset from a list of gene samples WITHOUT global
     undersampling, preserving the natural exon/intron class distribution.
