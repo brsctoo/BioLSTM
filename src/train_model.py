@@ -55,11 +55,9 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     weight_0 = total_valid / (2.0 * max(1, count_0))
     weight_1 = total_valid / (2.0 * max(1, count_1))
 
-    X_train_dna = X_train[:, :, :4]
-    X_val_dna = X_val[:, :, :4]
-
-    train_inputs = {'dna_input': X_train_dna}
-    val_inputs = {'dna_input': X_val_dna}
+    # Se a pipeline injetou o RF, X_train terá 5 canais. Passamos todos para o modelo.
+    train_inputs = {'dna_input': X_train}
+    val_inputs = {'dna_input': X_val}
 
     # Criar sample weights temporais (N, WINDOW_SIZE)
     sample_weights_arr = np.zeros_like(y_train, dtype=np.float32)
