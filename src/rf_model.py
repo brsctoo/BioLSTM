@@ -99,15 +99,89 @@ def compute_positional_asymmetry(one_hot: np.ndarray) -> np.ndarray:
     return np.concatenate([pos1_freq, pos2_freq, pos3_freq], axis=1).astype(np.float32)
 
 
+def compute_max_orf_length(one_hot: np.ndarray) -> np.ndarray:
+    """
+    Procura a maior sequência contínua (Open Reading Frame) sem Stop Codons 
+    (TAA, TAG, TGA) dentro da janela, respeitando os 3 frames de leitura.
+    """
+    # Converter para índices inteiros (B, W)
+    seq = np.argmax(one_hot, axis=-1)
+    
+    # Deslizar janela de 3 para capturar códons (B, W-2, 3)
+    kmers = sliding_window_view(seq, window_shape=3, axis=1)
+    
+    # A=0, T=1, G=2, C=3 (BASE_TO_VECTOR)
+    # TAA (1, 0, 0), TAG (1, 0, 2), TGA (1, 2, 0)
+    is_taa = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 0) & (kmers[:, :, 2] == 0)
+    is_tag = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 0) & (kmers[:, :, 2] == 2)
+    is_tga = (kmers[:, :, 0] == 1) & (kmers[:, :, 1] == 2) & (kmers[:, :, 2] == 0)
+    
+    is_stop = is_taa | is_tag | is_tga  # (B, W-2)
+    
+    B = is_stop.shape[0]
+    max_orf_lengths = np.zeros(B, dtype=np.int32)
+    
+    # Avaliar separadamente os 3 frames de leitura
+    for frame in range(3):
+        stops_f = is_stop[:, frame::3] # Fatiamento do frame (B, C)
+        C = stops_f.shape[1]
+        
+        current_len = np.zeros(B, dtype=np.int32)
+        max_len = np.zeros(B, dtype=np.int32)
+        
+        # Loop vetorizado pelo comprimento do frame (~40 códons, extremamente rápido)
+        for i in range(C):
+            is_false = ~stops_f[:, i]
+            current_len = (current_len + 1) * is_false
+            max_len = np.maximum(max_len, current_len)
+            
+        max_orf_lengths = np.maximum(max_orf_lengths, max_len)
+        
+    # Retorna o tamanho da ORF em bases (nucleotídeos)
+    return (max_orf_lengths * 3).astype(np.float32).reshape(-1, 1)
+
+
+def compute_fourier_period_3(one_hot: np.ndarray) -> np.ndarray:
+    """
+    Método de Voss (1992): Aplica a Transformada de Fourier sobre as 4 sequências
+    binárias do DNA para detectar a periodicidade-3 (f=1/3) típica de Éxons.
+    """
+    # O input já está codificado como 4 canais binários! Perfeito para Voss.
+    # Aplicar FFT no eixo do comprimento da sequência (axis=1)
+    X = np.fft.fft(one_hot, axis=1) # (B, W, 4) complexo
+    
+    # Power spectrum: magnitude ao quadrado
+    power = np.abs(X) ** 2
+    
+    # Somar a energia dos 4 canais (A, T, G, C)
+    S = np.sum(power, axis=2) # (B, W)
+    
+    # O pico de periodicidade de códons ocorre exatamente em f = 1/3
+    # No domínio da frequência, isso é o índice W / 3
+    W = one_hot.shape[1]
+    idx_1_3 = W // 3
+    
+    S_1_3 = S[:, idx_1_3]
+    
+    # Normaliza pela média do espectro para dar robustez
+    S_mean = np.mean(S, axis=1)
+    period_3_score = S_1_3 / (S_mean + 1e-8)
+    
+    return period_3_score.astype(np.float32).reshape(-1, 1)
+
+
 def build_feature_matrix(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
     Converte o tensor One-Hot 3D em uma matriz tabular 2D
     pronta para o Random Forest. Usa k=2 (17 features) ou k=3 (65 features).
     """
-    gc     = compute_gc_content(one_hot)             # (B, 1)
-    kmers  = compute_kmer_frequencies(one_hot, k=k) # (B, 4^k)
-    fickett = compute_positional_asymmetry(one_hot)  # (B, 12)
-    X      = np.concatenate([gc, kmers, fickett], axis=1).astype(np.float32)
+    gc      = compute_gc_content(one_hot)             # (B, 1)
+    kmers   = compute_kmer_frequencies(one_hot, k=k)  # (B, 4^k)
+    fickett = compute_positional_asymmetry(one_hot)   # (B, 12)
+    orf     = compute_max_orf_length(one_hot)         # (B, 1)
+    fourier = compute_fourier_period_3(one_hot)       # (B, 1)
+    
+    X = np.concatenate([gc, kmers, fickett, orf, fourier], axis=1).astype(np.float32)
     return X
 
 
@@ -294,8 +368,10 @@ def inject_rf_proba(
     expected_features = getattr(rf, "n_features_in_", 17)
     
     # Retrocompatibilidade
-    if expected_features == 77:
-        k = 3 # Fickett incluído
+    if expected_features >= 79:
+        k = 3 # Fickett + ORF + Fourier
+    elif expected_features == 77:
+        k = 3 # Apenas Fickett
     elif expected_features == 65:
         k = 3 # Sem Fickett (Antigo)
     else:
