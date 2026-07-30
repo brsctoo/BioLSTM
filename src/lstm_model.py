@@ -109,7 +109,10 @@ def create_model():
     x_dense = Dropout(0.4)(x_dense)
     out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
 
-    model = Model(inputs=[inp_dna, inp_rf], outputs=[out_lstm, out_final])
+    model = Model(
+        inputs={'dna_input': inp_dna, 'rf_input': inp_rf},
+        outputs={'aux_lstm_out': out_lstm, 'final_out': out_final}
+    )
 
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
