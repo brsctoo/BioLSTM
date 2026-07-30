@@ -65,6 +65,11 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     sample_weights_arr[y_train == 1] = weight_1
     # y_train == -1 fica com peso 0 (ignorado)
 
+    val_sample_weights_arr = np.zeros_like(y_val, dtype=np.float32)
+    val_sample_weights_arr[y_val == 0] = weight_0
+    val_sample_weights_arr[y_val == 1] = weight_1
+    # y_val == -1 fica com peso 0 (ignorado) na validação
+
     # Evitar que a loss quebre com valores -1
     y_train_clean = np.where(y_train == -1, 0, y_train)
     y_val_clean = np.where(y_val == -1, 0, y_val)
@@ -74,6 +79,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     y_val_clean = np.expand_dims(y_val_clean, -1)
 
     train_sample_weights = {'final_out': sample_weights_arr}
+    val_sample_weights = {'final_out': val_sample_weights_arr}
 
     train_targets = {'final_out': y_train_clean}
     val_targets = {'final_out': y_val_clean}
@@ -86,13 +92,13 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
         restore_best_weights=True
     )
 
-    # Train using validation_data with fully separated gene set
+    # Train using validation_data with fully separated gene set and sample weights
     history = lstm_model.fit(
         train_inputs,
         train_targets,
         epochs=epochs,
         batch_size=BATCH_SIZE,
-        validation_data=(val_inputs, val_targets), # type: ignore
+        validation_data=(val_inputs, val_targets, val_sample_weights), # type: ignore
         sample_weight=train_sample_weights,
         callbacks=[early_stop],
         verbose=2  # type: ignore
