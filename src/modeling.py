@@ -247,23 +247,20 @@ def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
         seq_onehot = np.asarray(seq_onehot, dtype=np.float16)
 
         X = extract_windows_numpy(seq_onehot, indices, window_size)
-        y = tagged_arr[indices].astype(np.int8)
-        y_win = extract_windows_labels_numpy(tagged_arr, indices, window_size)
+        y = extract_windows_labels_numpy(tagged_arr, indices, window_size)
 
         X_blocks.append(X)
         y_blocks.append(y)
-        y_window_blocks.append(y_win)
 
     if not X_blocks:
         raise ValueError("No windows were generated. Check the input data.")
 
     X_final = np.concatenate(X_blocks, axis=0)
     y_final = np.concatenate(y_blocks, axis=0)
-    y_window_final = np.concatenate(y_window_blocks, axis=0)
 
     # Shuffle within the split to remove sequential ordering bias
     rng_idx = np.random.permutation(len(y_final))
-    return X_final[rng_idx], y_final[rng_idx], y_window_final[rng_idx]
+    return X_final[rng_idx], y_final[rng_idx]
 
 
 def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_output,
@@ -309,23 +306,19 @@ def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_
 
     # 2. Generate windows SEPARATELY for each split (no cross-contamination)
     print("\nGenerating TRAIN windows (natural distribution, no undersampling)...")
-    X_train, y_train, y_window_train = build_XY_from_gene_list(train_genes)
+    X_train, y_train = build_XY_from_gene_list(train_genes)
     print(f"  X_train shape: {X_train.shape}")
-    print(f"  Exons: {np.sum(y_train==1):,} | Introns: {np.sum(y_train==0):,}")
-    print(f"  Exon proportion: {np.mean(y_train==1)*100:.1f}%")
 
     print("\nGenerating VALIDATION windows (natural distribution, no undersampling)...")
-    X_val, y_val, y_window_val = build_XY_from_gene_list(val_genes)
+    X_val, y_val = build_XY_from_gene_list(val_genes)
     print(f"  X_val shape  : {X_val.shape}")
-    print(f"  Exons: {np.sum(y_val==1):,}   | Introns: {np.sum(y_val==0):,}")
-    print(f"  Exon proportion: {np.mean(y_val==1)*100:.1f}%")
 
     # 3. Save both splits to separate files
     print(f"\nSaving training split to  : {XY_train_output}")
-    np.savez_compressed(XY_train_output, X=X_train, y=y_train, y_window=y_window_train)
+    np.savez_compressed(XY_train_output, X=X_train, y=y_train)
 
     print(f"Saving validation split to: {XY_val_output}")
-    np.savez_compressed(XY_val_output, X=X_val, y=y_val, y_window=y_window_val)
+    np.savez_compressed(XY_val_output, X=X_val, y=y_val)
 
     print("\nGene-split featurization complete!")
 
