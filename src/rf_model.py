@@ -583,6 +583,15 @@ def run_rf_pipeline(
                            y_val_window=y_val_window,
                            window_size=X_val_ohe.shape[1])
 
+    print("\n" + "=" * 60)
+    print("  RF DIAGNOSTICO DE DADOS E OVERFITTING")
+    print("=" * 60)
+    print(f"  treino: {X_train_ohe.shape} | % exon: {round(100 * y_train.mean(), 1)}%")
+    print(f"  val   : {X_val_ohe.shape} | % exon: {round(100 * y_val.mean(), 1)}%")
+    print(f"  OOB score do RF: {round(rf.oob_score_, 4)}")
+    print(f"  F1_macro       : {round(metrics['f1_macro'], 4)}")
+    print("=" * 60 + "\n")
+
     return metrics, rf
 
 

@@ -263,12 +263,13 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
 
         # --- LÓGICA DE INJEÇÃO CORRIGIDA ---
         if label == "treino":
-            # Treino: Ativa matriz OOB (evita vazamento) e Dropout (evita LSTM preguiçosa)
+            # Treino: Ativa matriz OOB (evita vazamento) e Dropout
             X_aug = rf_model.inject_rf_proba(
                 trained_rf, X_ohe,
                 rf_scale=rf_scale,
                 is_training_set=True,
-                apply_dropout=True
+                apply_dropout=True,
+                oob_proba=rf_model.rf_proba_oob(trained_rf)
             )
         else:
             # Validação: Usa probabilidade limpa e constante (sem Dropout e sem OOB)
