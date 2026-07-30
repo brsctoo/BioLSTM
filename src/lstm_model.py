@@ -77,17 +77,19 @@ def create_model():
 
     # --- 1. Frontend de CNN Dilatada (Contexto Amplo) ---
     # A CNN roda apenas na sequência de DNA pura (4 canais)
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp_dna)
+    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp_dna)
     x = BatchNormalization()(x)
 
-    x = residual_block(x, filters=64, kernel_size=5, dilation_rate=2)
-    x = residual_block(x, filters=128, kernel_size=5, dilation_rate=4)
+    # Filtros drasticamente reduzidos para combater Overfitting
+    x = residual_block(x, filters=32, kernel_size=5, dilation_rate=2)
+    x = residual_block(x, filters=64, kernel_size=5, dilation_rate=4)
 
     x = MaxPooling1D(pool_size=2)(x)
-    x = Dropout(0.3)(x)
+    x = Dropout(0.4)(x) # Dropout mais pesado
 
     # --- 2. Bi-LSTM mantendo a sequência (return_sequences=True) ---
-    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+    # Dieta na memória temporal: caiu de 64 para 32 neurônios
+    lstm_out = Bidirectional(LSTM(32, return_sequences=True, dropout=0.4))(x)
 
     # --- 3. Camada de Atenção (O "Holofote") ---
     attention_out = Attention()([lstm_out, lstm_out]) #Type: ignore
@@ -100,7 +102,7 @@ def create_model():
     merged = Concatenate()([x, inp_rf])
 
     # --- 5. Classificador Final (Juiz) ---
-    x = Dense(32, activation='relu')(merged)
+    x = Dense(16, activation='relu')(merged)
     x = Dropout(0.4)(x)
     out = Dense(1, activation='sigmoid')(x)
 
