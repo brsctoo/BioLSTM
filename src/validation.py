@@ -135,7 +135,11 @@ def validate_model(model_path, data_test, rf=None):
             else:
                 raise ValueError(f"Modelo antigo espera {expected_channels} canais (não suportado).")
 
-        predict_raw = (loaded_model.predict(X_inputs) > 0.40).astype("int32") # type: ignore
+        predictions = loaded_model.predict(X_inputs)
+        if isinstance(predictions, list):
+            predictions = predictions[-1] # Pega o final_out
+            
+        predict_raw = (predictions > 0.40).astype("int32") # type: ignore
         predict_smoothed = smooth_predict(predict_raw, window_size=6)
 
         # ===== REQUESTED DEBUG BLOCK: % per position =====

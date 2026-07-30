@@ -88,22 +88,27 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     train_inputs = {'dna_input': X_train_dna, 'rf_input': X_train_rf}
     val_inputs = {'dna_input': X_val_dna, 'rf_input': X_val_rf}
 
+    train_targets = {'aux_lstm_out': y_train, 'final_out': y_train}
+    val_targets = {'aux_lstm_out': y_val, 'final_out': y_val}
+
     # Train using validation_data with fully separated gene set
     history = lstm_model.fit(
         train_inputs,
-        y_train,
+        train_targets,
         epochs=epochs,
         batch_size=BATCH_SIZE,
-        validation_data=(val_inputs, y_val), # type: ignore
+        validation_data=(val_inputs, val_targets), # type: ignore
         class_weight=class_weights,
         callbacks=[early_stop],
         verbose=2  # type: ignore
     )
 
     print("\nModel training completed.\n")
-    test_results = lstm_model.evaluate(val_inputs, y_val, verbose=2)  # type: ignore
-    print(f'\nValidation results -> Loss: {test_results[0]:.4f} | ' # type: ignore
-          f'Accuracy: {100*test_results[1]:.2f}%\n') # type: ignore
+    test_results = lstm_model.evaluate(val_inputs, val_targets, verbose=2)  # type: ignore
+
+    # test_results returns: [total_loss, aux_loss, final_loss, final_acc, final_prec, final_rec, final_auc]
+    print(f'\nValidation results -> Total Loss: {test_results[0]:.4f} | '
+          f'Final Output Accuracy: {100*test_results[3]:.2f}%\n')
 
     lstm_model.save(result_filepath_output)
     print(f"Model saved to: {result_filepath_output}")
