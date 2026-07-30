@@ -47,8 +47,8 @@ def create_model():
     """
     Constrói a rede Seq2Seq: CNN (Local) + Bi-LSTM (Médio).
     O modelo recebe janelas de DNA e prediz Íntron/Éxon para CADA nucleotídeo (N, WINDOW_SIZE, 1).
-    """
-    inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
+    # Agora recebe 5 canais (4 do DNA One-Hot + 1 da probabilidade injetada pelo RF)
+    inp_dna = Input(shape=(WINDOWS_SIZE, 5), name="dna_input")
 
     # --- 1. Frontend de CNN (Contexto Local) ---
     x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
@@ -62,6 +62,11 @@ def create_model():
     # --- 2. Bi-LSTM Seq2Seq ---
     x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
     x = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+
+    # --- 2.5 Self-Attention (Foco nos sítios de splicing) ---
+    attn = tf.keras.layers.MultiHeadAttention(num_heads=4, key_dim=32)(x, x)
+    x = Add()([x, attn])
+    x = BatchNormalization()(x)
 
     # --- 3. Classificador Final ---
     # Aplica Dense em cada step da sequência independentemente (TimeDistributed nativo)
