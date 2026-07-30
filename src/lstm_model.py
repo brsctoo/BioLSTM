@@ -3,13 +3,13 @@ Creates the deep hybrid CNN + Stacked Bi-LSTM model for biological sequence clas
 """
 
 import tensorflow as tf
-from keras.layers import (
-    Conv1D, MaxPooling1D, BatchNormalization,
-    Bidirectional, LSTM, Dense, Dropout, Input
+from tensorflow.keras.layers import (
+    Conv1D, MaxPooling1D, BatchNormalization, Add, Concatenate,
+    Bidirectional, LSTM, Dense, Dropout, Input, Attention, GlobalMaxPooling1D
 )
-from keras.models import Model
-from keras.optimizers import Adam
-from keras.losses import BinaryFocalCrossentropy
+from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import BinaryFocalCrossentropy
 
 # Define model parameters
 SEQUENCE_LENGTH = 60
@@ -30,36 +30,12 @@ def set_window_size(size: int) -> None:
     global WINDOWS_SIZE
     WINDOWS_SIZE = size
 
-# Alpha adicionado! Exons (1) recebem mais "peso" de atenção da rede do que Introns (0)
-LOSS_FUNCTION = BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
-OPTIMIZER = Adam(learning_rate=LEARNING_RATE)
-
-METRICS = [
-    'accuracy',
-    tf.keras.metrics.Precision(name='precision'),
-    tf.keras.metrics.Recall(name='recall'),
-    tf.keras.metrics.TruePositives(name='tp'),
-    tf.keras.metrics.TrueNegatives(name='tn'),
-    tf.keras.metrics.FalsePositives(name='fp'),
-    tf.keras.metrics.FalseNegatives(name='fn'),
-    tf.keras.metrics.AUC(name='auc')
-]
-
-import tensorflow as tf
-from tensorflow.keras.layers import (
-    Conv1D, MaxPooling1D, BatchNormalization, Add, Concatenate,
-    Bidirectional, LSTM, Dense, Dropout, Input, Attention, GlobalAveragePooling1D
-)
-from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.losses import BinaryFocalCrossentropy
-
-def residual_block(x, filters, kernel_size, dilation_rate):
-    """Bloco residual com dilatação para ampliar o campo de visão da CNN."""
+def residual_block(x, filters, kernel_size):
+    """Bloco residual padrão (foco local, sem dilatação)."""
     shortcut = x
-    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(x)
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu')(x)
     fx = BatchNormalization()(fx)
-    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu', dilation_rate=dilation_rate)(fx)
+    fx = Conv1D(filters=filters, kernel_size=kernel_size, padding='same', activation='relu')(fx)
     fx = BatchNormalization()(fx)
 
     if shortcut.shape[-1] != filters:
@@ -69,20 +45,20 @@ def residual_block(x, filters, kernel_size, dilation_rate):
 
 def create_model():
     """
-    Constrói a rede híbrida: CNN Dilatada + Bi-LSTM + Mecanismo de Atenção.
+    Constrói a rede híbrida: CNN (Local) + Bi-LSTM (Médio) + RF (Global).
     Mantém a LSTM com capacidade máxima de focar nas partes críticas da janela de 400.
     """
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
-    # --- 1. Frontend de CNN Dilatada (Contexto Amplo) ---
-    # A CNN roda apenas na sequência de DNA pura (4 canais)
-    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu', dilation_rate=1)(inp_dna)
+    # --- 1. Frontend de CNN (Contexto Local) ---
+    # A CNN roda apenas na sequência de DNA pura (4 canais) para encontrar pequenos motivos
+    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(inp_dna)
     x = BatchNormalization()(x)
 
     # Filtros drasticamente reduzidos para combater Overfitting
-    x = residual_block(x, filters=32, kernel_size=5, dilation_rate=2)
-    x = residual_block(x, filters=64, kernel_size=5, dilation_rate=4)
+    x = residual_block(x, filters=32, kernel_size=5)
+    x = residual_block(x, filters=64, kernel_size=5)
 
     x = MaxPooling1D(pool_size=2)(x)
     x = Dropout(0.4)(x) # Dropout mais pesado
@@ -94,7 +70,7 @@ def create_model():
     # --- 3. Camada de Atenção (O "Holofote") ---
     attention_out = Attention()([lstm_out, lstm_out]) #Type: ignore
 
-    x = GlobalAveragePooling1D()(attention_out) #Type: ignore
+    x = GlobalMaxPooling1D()(attention_out) #Type: ignore
     x = Dropout(0.4)(x)
 
     # --- 3.5 Saída Auxiliar da LSTM ---
@@ -117,12 +93,12 @@ def create_model():
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
         loss={
-            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.75),
-            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.75)
+            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50),
+            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)
         },
         loss_weights={
-            'aux_lstm_out': 0.6, # 60% do peso do erro vai para cobrar a LSTM
-            'final_out': 0.4 # 40% vai para o Juiz final que junta LSTM + RF
+            'aux_lstm_out': 0.25, # Cabeça auxiliar funciona apenas como regularizador (DNA puro)
+            'final_out': 1.0 # O alvo principal da rede que vê o RF (Late Fusion)
         },
         metrics={
             'final_out': [

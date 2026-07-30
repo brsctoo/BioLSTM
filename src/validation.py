@@ -10,7 +10,7 @@ import pickle
 import keras
 from minineedle import needle # type: ignore
 
-def smooth_predict(predict_raw, window_size=6):
+def smooth_predict(predict_raw, window_size=20):
     half = window_size // 2
     smoothed = []
 
@@ -91,8 +91,7 @@ def validate_model(model_path, data_test, rf=None):
     print(f"Discarded (with NNNNNNNNN) : {len(raw_test_data) - len(data_test)}")
     print("-" * 50)
 
-    all_y_true = []
-    all_y_pred = []
+    all_y_true, all_y_pred, all_y_prob = [], [], []
 
     count = 0
     for sample in data_test:
@@ -141,27 +140,28 @@ def validate_model(model_path, data_test, rf=None):
         elif isinstance(predictions, dict):
             predictions = predictions['final_out']
             
-        predict_raw = (predictions > 0.40).astype("int32") # type: ignore
-        predict_smoothed = smooth_predict(predict_raw, window_size=6)
+        THRESHOLD     = 0.40   
+        SMOOTH_WINDOW = 20
+
+        prob = np.asarray(predictions).flatten()             
+        predict_raw = (prob > THRESHOLD).astype("int32")
+        predict_smoothed = np.array(smooth_predict(predict_raw, window_size=SMOOTH_WINDOW))
 
         # ===== REQUESTED DEBUG BLOCK: % per position =====
         print_positional_prediction_ratio(count, Y, predict_raw, predict_smoothed)
 
-        # Appending data for global verification metrics
-        all_y_true.extend(Y.tolist())
-        all_y_pred.extend(predict_smoothed)
+        mask = Y >= 0                                      
+        all_y_true.extend(Y[mask].tolist())
+        all_y_pred.extend(predict_smoothed[mask].tolist())
+        all_y_prob.extend(prob[mask].tolist())                 
 
         # Final sequence of predicted exons and introns
-        final_seq = []
-        for i in range(len(predict_smoothed)):
-            if predict_smoothed[i] == 1:
-                final_seq.append(sample["sequence"][i])
+        final_seq = [sample["sequence"][i] for i in range(len(predict_smoothed))
+                     if mask[i] and predict_smoothed[i] == 1]
 
         # Sequence of true exons and introns
-        true_final_seq = []
-        for i in range(len(Y)):
-            if Y[i] == 1:
-                true_final_seq.append(sample["sequence"][i])
+        true_final_seq = [sample["sequence"][i] for i in range(len(Y))
+                          if mask[i] and Y[i] == 1]
 
         if len(final_seq) != 0 and len(true_final_seq) != 0:
             alignment = needle.NeedlemanWunsch(final_seq, true_final_seq)
@@ -226,12 +226,16 @@ def validate_model(model_path, data_test, rf=None):
     # ── Positional Metric via Keras ───────────────────────────────
     y_true_t = np.array(all_y_true, dtype=np.float32)
     y_pred_t = np.array(all_y_pred, dtype=np.float32)
+    y_prob_t = np.array(all_y_prob, dtype=np.float32)
+
+    auc_metric = keras.metrics.AUC()
+    auc_metric.update_state(y_true_t, y_prob_t)
 
     keras_metrics = {
         "Accuracy" : keras.metrics.BinaryAccuracy(),
         "Precision": keras.metrics.Precision(),
         "Recall"   : keras.metrics.Recall(),
-        "AUC"      : keras.metrics.AUC(),
+        "AUC"      : auc_metric,
         "TP"       : keras.metrics.TruePositives(),
         "TN"       : keras.metrics.TrueNegatives(),
         "FP"       : keras.metrics.FalsePositives(),
@@ -239,7 +243,8 @@ def validate_model(model_path, data_test, rf=None):
     }
 
     for name, metric in keras_metrics.items():
-        metric.update_state(y_true_t, y_pred_t)
+        if name != "AUC":
+            metric.update_state(y_true_t, y_pred_t)
 
     tp = keras_metrics["TP"].result().numpy()
     fp = keras_metrics["FP"].result().numpy()
