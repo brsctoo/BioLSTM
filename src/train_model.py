@@ -112,11 +112,17 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     )
 
     print("\nModel training completed.\n")
-    test_results = lstm_model.evaluate(val_inputs, val_targets, verbose=2)  # type: ignore
+    test_results = lstm_model.evaluate(val_inputs, val_targets, verbose=2, return_dict=True)  # type: ignore
 
-    # test_results returns: [total_loss, aux_loss, final_loss, final_acc, final_prec, final_rec, final_auc]
-    print(f'\nValidation results -> Total Loss: {test_results[0]:.4f} | '
-          f'Final Output Accuracy: {100*test_results[3]:.2f}%\n')
+    if isinstance(test_results, dict):
+        loss_val = test_results.get('loss', 0.0)
+        acc_val = test_results.get('final_out_accuracy', test_results.get('accuracy', 0.0))
+    else:
+        loss_val = test_results[0]
+        acc_val = test_results[3]
+
+    print(f'\nValidation results -> Total Loss: {loss_val:.4f} | '
+          f'Final Output Accuracy: {100*acc_val:.2f}%\n')
 
     lstm_model.save(result_filepath_output)
     print(f"Model saved to: {result_filepath_output}")
