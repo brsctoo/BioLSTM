@@ -67,11 +67,13 @@ def tag_positions(sample) -> list[int]:
 
     for start, end in sample["intron_intervals"]:
         for i in range(start, end + 1):
-            tag[i] = 0  # Real intron
+            if 0 <= i < len(tag):
+                tag[i] = 0  # Real intron
 
     for start, end in sample["exon_intervals"]:
         for i in range(start, end + 1): # Inclusive end position
-            tag[i] = 1  # Mark exon positions as 1
+            if 0 <= i < len(tag):
+                tag[i] = 1  # Mark exon positions as 1
 
     return tag
 
