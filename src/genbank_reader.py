@@ -60,8 +60,12 @@ def read_records(genbank_input_filepath):
         if not validate_register(register):
             continue
 
-        # Converts to string AND ensures uppercase to prevent hidden bugs
-        full_seq = str(register.seq).upper()
+        try:
+            # Converts to string AND ensures uppercase to prevent hidden bugs
+            full_seq = str(register.seq).upper()
+        except Exception:
+            # Pula registros GenBank vazios ou apenas com features (UndefinedSequenceError)
+            continue
 
         if len(full_seq) > MAX_SEQUENCE_LENGTH:
             # print(f"Skipping sequence with {len(full_seq)} bases...")
