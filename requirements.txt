@@ -1,0 +1,6 @@
+biopython
+keras
+minineedle
+numpy
+scikit-learn
+tensorflow
