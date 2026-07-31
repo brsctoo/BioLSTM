@@ -99,9 +99,9 @@ import rf_model
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # -------- Genbank Search Configuration -----------
-MAX_RECORDS = 1500
+MAX_RECORDS = 6000
 BATCH_SIZE = 50
-MAX_PER_SPECIES = 50  # Força alta diversidade (mínimo de 50 espécies diferentes)
+MAX_PER_SPECIES = 200  # Aumentado de 50 para 200 para agilizar o download
 MAX_GENERAL = 500000    # Tamanho do "pool" aleatório que vamos baixar os IDs
 MAX_HOUSEKEEPING = 0   # Ignorado na nova abordagem
 
@@ -186,14 +186,23 @@ def save_run_metadata(name, injection_rate, injection_mode, ratio_degenerate, in
         f.write("\n".join(lines) + "\n")
     print(f"Run metadata saved to: {txt_filepath}")
 
-def search_data_pipeline():
+def search_data_pipeline(name):
     query_to_print = QUERY_GENERAL.replace(' AND ', '\nAND ')
     query_housekeeping_to_print = QUERY_HOUSEKEEPING.replace(' AND ', '\nAND ')
+    
+    # Usa o get_output_paths para salvar o arquivo com o nome personalizado
+    genbank_input, _, _, _, _ = get_output_paths(name)
+    
     log_stage("SEARCH — Querying GenBank")
     print(f"GENERAL QUERY: \n {query_to_print}")
     print(f"HOUSEKEEPING QUERY: \n {query_housekeeping_to_print}")
+    print(f"Salving gigadataset to: {genbank_input}")
+    
+    # Criar diretório se não existir
+    os.makedirs(os.path.dirname(genbank_input), exist_ok=True)
+    
     genbank_searcher.main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE,
-                           MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE)
+                           MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, genbank_input)
     log_stage("SEARCH — DONE.")
 
 def create_train_test_files(injection_rate, injection_mode, name, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
@@ -448,7 +457,7 @@ def main():
             return
 
     if args.mode == "search_data":
-        search_data_pipeline()
+        search_data_pipeline(args.name)
     elif args.mode == "train":
         train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, **injector_kwargs)
     elif args.mode == "test":
