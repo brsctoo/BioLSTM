@@ -60,11 +60,11 @@ def read_records(genbank_input_filepath):
         if not validate_register(register):
             continue
 
-        # Converts to string AND ensures uppercase to prevent hidden bugs
         try:
+            # Converts to string AND ensures uppercase to prevent hidden bugs
             full_seq = str(register.seq).upper()
         except Exception:
-            # Pula registros do GenBank que não possuem a sequência ATCG (Sequence content is undefined)
+            # Pula registros GenBank vazios ou apenas com features (UndefinedSequenceError)
             continue
 
         if len(full_seq) > MAX_SEQUENCE_LENGTH:
@@ -108,18 +108,7 @@ def read_records(genbank_input_filepath):
         exons_intervals_raw = re.make_exons_intervals_list(target_feature.location)
 
         # Shifts coordinates to the new "Point Zero" (since the start was cropped)
-        exons_intervals = []
-        out_of_bounds = False
-        for s, e in exons_intervals_raw:
-            shifted_s = s - mrna_start
-            shifted_e = e - mrna_start
-            if shifted_s < 0 or shifted_e >= len(cropped_seq_obj):
-                out_of_bounds = True
-                break
-            exons_intervals.append([shifted_s, shifted_e])
-            
-        if out_of_bounds:
-            continue
+        exons_intervals = [[s - mrna_start, e - mrna_start] for s, e in exons_intervals_raw]
 
         # 2. REVERSE STRAND
         if target_feature.location.strand == -1:

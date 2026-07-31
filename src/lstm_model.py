@@ -45,38 +45,41 @@ def residual_block(x, filters, kernel_size):
 
 def create_model():
     """
-    Constrói a rede híbrida: CNN (Local) + Bi-LSTM (Médio) + RF (Global).
-    Mantém a LSTM com capacidade máxima de focar nas partes críticas da janela de 400.
+    Constrói a rede híbrida Seq2Seq: CNN (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
     """
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
     # --- 1. Frontend de CNN (Contexto Local) ---
-    # A CNN roda apenas na sequência de DNA pura (4 canais) para encontrar pequenos motivos
     x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
     x = BatchNormalization()(x)
 
     x = residual_block(x, filters=64, kernel_size=5)
     x = residual_block(x, filters=128, kernel_size=5)
 
-    x = Dropout(0.3)(x) # Reduzido de 0.4 para 0.3
-
-    # --- 2. Bi-LSTM mantendo a sequência (return_sequences=True) ---
-    # Capacidade restaurada de 32 para 64 neurônios, e com resolução espacial completa (sem MaxPooling)
-    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
-
-    # --- 3. Camada de Atenção (O "Holofote") ---
-    attention_out = Attention()([lstm_out, lstm_out]) #Type: ignore
-
-    x = GlobalMaxPooling1D()(attention_out) #Type: ignore
     x = Dropout(0.3)(x)
 
-    # --- 3.5 Saída Auxiliar da LSTM ---
+    # --- 2. Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
+    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+
+    # A camada de Atenção preserva a sequência quando recebe os dois inputs iguais.
+    # O holofote agora atua olhando para os pontos do tempo sem achatar a sequência inteira.
+    attention_out = Attention()([lstm_out, lstm_out]) # Type: ignore
+    x = attention_out 
+    
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # --- 3.5 Saída Auxiliar da LSTM (Seq2Seq) ---
     out_lstm = Dense(1, activation='sigmoid', name='aux_lstm_out')(x)
 
-    # --- 4. Fusão Híbrida (Late Fusion) ---
-    # Junta a inteligência temporal (LSTM) com o palpite estatístico global (RF)
-    merged = Concatenate()([x, inp_rf])
+    # --- 4. Fusão Híbrida (Late Fusion adaptado para Seq2Seq) ---
+    # Precisamos "esticar" a feature única do RF (tamanho 1) para todos os timesteps (tamanho WINDOWS_SIZE)
+    from tensorflow.keras.layers import RepeatVector
+    rf_repeated = RepeatVector(WINDOWS_SIZE)(inp_rf)
+
+    # Junta a inteligência temporal (LSTM Seq2Seq) com o palpite estatístico (RF repetido no tempo)
+    merged = Concatenate(axis=-1)([x, rf_repeated])
 
     # --- 5. Classificador Final ---
     x_dense = Dense(32, activation='relu')(merged)
@@ -95,8 +98,8 @@ def create_model():
             'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)
         },
         loss_weights={
-            'aux_lstm_out': 0.25, # Cabeça auxiliar funciona apenas como regularizador (DNA puro)
-            'final_out': 1.0 # O alvo principal da rede que vê o RF (Late Fusion)
+            'aux_lstm_out': 0.25, # Regularizador
+            'final_out': 1.0 # Alvo principal
         },
         metrics={
             'final_out': [

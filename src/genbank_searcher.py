@@ -48,21 +48,25 @@ def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GEN
         for i in range(0, len(ids), BATCH_SIZE):
             batch = ids[i : i + BATCH_SIZE]
 
-            fetch_handle = Entrez.efetch(db="nucleotide", id=batch, rettype="gb", retmode="text")
-            records = SeqIO.parse(fetch_handle, "genbank")
+            try:
+                fetch_handle = Entrez.efetch(db="nucleotide", id=batch, rettype="gb", retmode="text")
+                records = SeqIO.parse(fetch_handle, "genbank")
 
-            for record in records:
-                especie = record.annotations.get("organism", "Desconhecida")
+                for record in records:
+                    especie = record.annotations.get("organism", "Desconhecida")
 
-                if especie not in especies_count:
-                    especies_count[especie] = 0
+                    if especie not in especies_count:
+                        especies_count[especie] = 0
 
-                if especies_count[especie] < MAX_POR_ESPECIE:
-                    SeqIO.write(record, out, "genbank")
-                    especies_count[especie] += 1
-                    total_saves += 1
+                    if especies_count[especie] < MAX_POR_ESPECIE:
+                        SeqIO.write(record, out, "genbank")
+                        especies_count[especie] += 1
+                        total_saves += 1
 
-            fetch_handle.close()
+                fetch_handle.close()
+            except Exception as e:
+                print(f"⚠️ Erro no batch (possível queda de conexão do NCBI): {e}. Pulando para o próximo...")
+                continue
             print(f"Batch processed. Records saved so far: {total_saves}/{MAX_RECORDS}")
             time.sleep(1)
 
