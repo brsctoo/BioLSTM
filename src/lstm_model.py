@@ -45,29 +45,62 @@ def residual_block(x, filters, kernel_size):
 
 def create_model():
     """
-    Teste de Sanidade: Modelo Seq2Seq MAIS SIMPLES POSSÍVEL.
-    Sem atenção, sem RF. Apenas CNN + Bi-LSTM + Dense.
+    Constrói a rede híbrida Seq2Seq: CNN (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
     """
-    # Apenas os 4 canais do DNA (A, T, C, G)
-    inp = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
-    x = inp
+    inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
+    inp_rf = Input(shape=(1,), name="rf_input")
 
     # --- 1. Frontend de CNN (Contexto Local) ---
-    x = Conv1D(filters=32, kernel_size=5, padding='same', activation='relu')(x)
-    x = BatchNormalization(momentum=0.9)(x)
+    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
+    x = BatchNormalization()(x)
+
+    x = residual_block(x, filters=64, kernel_size=5)
+    x = residual_block(x, filters=128, kernel_size=5)
+
+    x = Dropout(0.3)(x)
+
+    # --- 2. Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
+    lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
+
+    # A camada de Atenção preserva a sequência quando recebe os dois inputs iguais.
+    # O holofote agora atua olhando para os pontos do tempo sem achatar a sequência inteira.
+    attention_out = Attention()([lstm_out, lstm_out]) # Type: ignore
+    x = attention_out 
     
-    # --- 2. Bi-LSTM Seq2Seq ---
-    x = Bidirectional(LSTM(32, return_sequences=True))(x)
-    x = BatchNormalization(momentum=0.9)(x)
-    
-    # --- 3. Classificador Final ---
-    out_final = Dense(1, activation='sigmoid', name='final_out')(x)
-    
-    model = Model(inputs={'dna_input': inp}, outputs={'final_out': out_final})
-    
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+
+    # --- 3.5 Saída Auxiliar da LSTM (Seq2Seq) ---
+    out_lstm = Dense(1, activation='sigmoid', name='aux_lstm_out')(x)
+
+    # --- 4. Fusão Híbrida (Late Fusion adaptado para Seq2Seq) ---
+    # Precisamos "esticar" a feature única do RF (tamanho 1) para todos os timesteps (tamanho WINDOWS_SIZE)
+    from tensorflow.keras.layers import RepeatVector
+    rf_repeated = RepeatVector(WINDOWS_SIZE)(inp_rf)
+
+    # Junta a inteligência temporal (LSTM Seq2Seq) com o palpite estatístico (RF repetido no tempo)
+    merged = Concatenate(axis=-1)([x, rf_repeated])
+
+    # --- 5. Classificador Final ---
+    x_dense = Dense(32, activation='relu')(merged)
+    x_dense = Dropout(0.3)(x_dense)
+    out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
+
+    model = Model(
+        inputs={'dna_input': inp_dna, 'rf_input': inp_rf},
+        outputs={'aux_lstm_out': out_lstm, 'final_out': out_final}
+    )
+
     model.compile(
-        optimizer=Adam(learning_rate=3e-4),
-        loss={'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)},
+        optimizer=Adam(learning_rate=1e-4),
+        loss={
+            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50),
+            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)
+        },
+        loss_weights={
+            'aux_lstm_out': 0.25, # Regularizador
+            'final_out': 1.0 # Alvo principal
+        },
         metrics={
             'final_out': [
                 'accuracy',
@@ -77,4 +110,5 @@ def create_model():
             ]
         }
     )
+
     return model
