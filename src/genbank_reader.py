@@ -108,7 +108,18 @@ def read_records(genbank_input_filepath):
         exons_intervals_raw = re.make_exons_intervals_list(target_feature.location)
 
         # Shifts coordinates to the new "Point Zero" (since the start was cropped)
-        exons_intervals = [[s - mrna_start, e - mrna_start] for s, e in exons_intervals_raw]
+        exons_intervals = []
+        out_of_bounds = False
+        for s, e in exons_intervals_raw:
+            shifted_s = s - mrna_start
+            shifted_e = e - mrna_start
+            if shifted_s < 0 or shifted_e >= len(cropped_seq_obj):
+                out_of_bounds = True
+                break
+            exons_intervals.append([shifted_s, shifted_e])
+            
+        if out_of_bounds:
+            continue
 
         # 2. REVERSE STRAND
         if target_feature.location.strand == -1:
