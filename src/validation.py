@@ -69,6 +69,11 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
                 kwargs['score_mode'] = 'dot'
             super().__init__(**kwargs)
 
+    try:
+        keras.config.enable_unsafe_deserialization()
+    except AttributeError:
+        pass
+
     loaded_model = keras.models.load_model(model_path, custom_objects={'Attention': SafeAttention})
 
     # Assert model is not None to resolve Pyright's attribute inference warning
@@ -114,7 +119,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
 
         # --- VERIFICAÇÃO DE ARQUITETURA ---
         # Checa se o modelo usa Late Fusion (tem múltiplas entradas)
-        if hasattr(loaded_model, 'inputs') and len(loaded_model.inputs) == 2:
+        if hasattr(loaded_model, 'inputs') and len(loaded_model.inputs) >= 2:
             X_dna = X
             if rf is not None:
                 # Reaproveita a função de injeção, mas pega só a coluna de probabilidade
@@ -122,7 +127,13 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
                 X_rf = X_aug[:, 0, 4:]                    # (N, 1)
             else:
                 X_rf = np.zeros((X.shape[0], 1))
+            
             X_inputs = {'dna_input': X_dna, 'rf_input': X_rf}
+            
+            if len(loaded_model.inputs) == 3:
+                pos = np.arange(len(windows), dtype=np.float32) / max(1, len(sample["sequence"]) - 1)
+                pos = np.expand_dims(pos, axis=-1)
+                X_inputs['pos_input'] = pos
         
         else:
             # Modelo antigo (Early Fusion ou Baseline sem RF)
@@ -139,6 +150,12 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
             predictions = predictions[-1] # Pega o final_out
         elif isinstance(predictions, dict):
             predictions = predictions['final_out']
+            
+        # Se o modelo for Seq2Seq (3D output: N, WINDOW_SIZE, 1),
+        # pegamos apenas a predição central (nucleotídeo alvo).
+        if predictions.ndim == 3:
+            mid = predictions.shape[1] // 2
+            predictions = predictions[:, mid, :]
             
         THRESHOLD     = threshold   
         SMOOTH_WINDOW = 20
