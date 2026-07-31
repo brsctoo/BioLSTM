@@ -55,15 +55,24 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     weight_0 = total_valid / (2.0 * max(1, count_0))
     weight_1 = total_valid / (2.0 * max(1, count_1))
 
-    # Para o teste de sanidade, forçamos sempre 4 canais (DNA puro)
-    # Ignorando o 5º canal injetado pelo pipeline
+    # Separa o canal do RF (5º canal) do canal de DNA (4 canais)
     if X_train.shape[-1] == 5:
-        X_train = X_train[:, :, :4]
-    if X_val.shape[-1] == 5:
-        X_val = X_val[:, :, :4]
+        # A probabilidade RF é a mesma pra janela inteira, pegamos de qualquer ponto
+        rf_train = X_train[:, 0, 4:5]
+        X_train_dna = X_train[:, :, :4]
+    else:
+        rf_train = np.zeros((X_train.shape[0], 1), dtype=np.float32)
+        X_train_dna = X_train[:, :, :4]
 
-    train_inputs = {'dna_input': X_train}
-    val_inputs = {'dna_input': X_val}
+    if X_val.shape[-1] == 5:
+        rf_val = X_val[:, 0, 4:5]
+        X_val_dna = X_val[:, :, :4]
+    else:
+        rf_val = np.zeros((X_val.shape[0], 1), dtype=np.float32)
+        X_val_dna = X_val[:, :, :4]
+
+    train_inputs = {'dna_input': X_train_dna, 'rf_input': rf_train}
+    val_inputs = {'dna_input': X_val_dna, 'rf_input': rf_val}
 
     # Criar sample weights temporais (N, WINDOW_SIZE)
     sample_weights_arr = np.zeros_like(y_train, dtype=np.float32)
@@ -84,11 +93,11 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     y_train_clean = np.expand_dims(y_train_clean, -1)
     y_val_clean = np.expand_dims(y_val_clean, -1)
 
-    train_sample_weights = {'final_out': sample_weights_arr}
-    val_sample_weights = {'final_out': val_sample_weights_arr}
+    train_sample_weights = {'final_out': sample_weights_arr, 'aux_lstm_out': sample_weights_arr}
+    val_sample_weights = {'final_out': val_sample_weights_arr, 'aux_lstm_out': val_sample_weights_arr}
 
-    train_targets = {'final_out': y_train_clean}
-    val_targets = {'final_out': y_val_clean}
+    train_targets = {'final_out': y_train_clean, 'aux_lstm_out': y_train_clean}
+    val_targets = {'final_out': y_val_clean, 'aux_lstm_out': y_val_clean}
 
     # Configuração de Callbacks: ReduceLROnPlateau + EarlyStopping (monitorando val_auc)
     # Obs: como a métrica é um dicionário no compile com o nome final_out, o Keras
