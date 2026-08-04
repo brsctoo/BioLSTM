@@ -70,8 +70,8 @@ def read_records(genbank_input_filepath):
         try:
             # Converts to string AND ensures uppercase to prevent hidden bugs
             full_seq = str(register.seq).upper()
-        except AttributeError:
-            # Occurs if 'register' does not have a '.seq' attribute.
+        except Exception:
+            # Occurs if 'register' does not have a '.seq' attribute or throws UndefinedSequenceError
             continue
 
         if len(full_seq) > MAX_SEQUENCE_LENGTH:
