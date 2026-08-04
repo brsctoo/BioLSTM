@@ -309,7 +309,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     rf_model.save_rf(trained_rf, rf_result)
 
 
-def validate_pipeline(name, threshold=0.50):
+def validate_pipeline(name, threshold=0.50, max_samples=None):
     import validation
     _, mod1, _, result, rf_result = get_output_paths(name)
 
@@ -318,10 +318,10 @@ def validate_pipeline(name, threshold=0.50):
     print("RF model :", rf_result)
     print("Test data:", mod1 + "_test.mod1")
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold)
+    validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold, max_samples=max_samples)
     log_stage("VALIDATION — DONE.")
 
-def validate_specific_dataset(name, dataset_name, threshold=0.50):
+def validate_specific_dataset(name, dataset_name, threshold=0.50, max_samples=None):
     import validation
     _, _, _, result, rf_result = get_output_paths(name)
     
@@ -340,7 +340,7 @@ def validate_specific_dataset(name, dataset_name, threshold=0.50):
     print("Model    :", result)
     print("Test data:", specific_dataset)
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold)
+    validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold, max_samples=max_samples)
     log_stage("VALIDATION — DONE.")
 
 def main():
@@ -407,6 +407,9 @@ def main():
              
     parser.add_argument("--test-dataset", type=str, default="",
         help="Caminho ou nome do arquivo .mod1 especifico para usar com o modo 'validate_specific_dataset'. Se nao fornecido, pedira via input().")
+        
+    parser.add_argument("--limit-test", type=int, default=None,
+        help="Limita o número de amostras testadas na validação para agilizar testes rápidos.")
              
     # RF Features flags
     parser.add_argument("--no-kmer", action="store_true", help="Desabilita a feature de frequências de k-mers no Random Forest")
@@ -484,14 +487,14 @@ def main():
     elif args.mode == "train":
         train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
     elif args.mode == "test":
-        validate_pipeline(name, threshold=threshold)
+        validate_pipeline(name, threshold=threshold, max_samples=args.limit_test)
     elif args.mode == "full":
         train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)
     elif args.mode == "validate_specific_dataset":
-        validate_specific_dataset(name, args.test_dataset, threshold=threshold)
+        validate_specific_dataset(name, args.test_dataset, threshold=threshold, max_samples=args.limit_test)
     elif args.mode == "create_train_test_files":
         create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
 

@@ -46,9 +46,6 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     # Higher weight for the minority class (usually exons)
     weight_0 = total_valid / (2.0 * max(1, count_0))
     weight_1 = total_valid / (2.0 * max(1, count_1))
-    
-    # PENALIDADE EXTRA PARA FALSOS ÉXONS (Reduzir Over-prediction de Éxon)
-    weight_0 *= 2.0  # Dobramos o peso do Íntron para forçar a rede a respeitá-lo mais
 
     # 3. Split the Multi-Input architecture (DNA vs Random Forest probabilities)
     # X = [Samples, Window Size, Channels]

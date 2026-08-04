@@ -53,7 +53,7 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
-def validate_model(model_path, data_test, rf=None, threshold=0.70):
+def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=None):
     """
     Validates the Bi-LSTM model on the test dataset.
 
@@ -67,6 +67,8 @@ def validate_model(model_path, data_test, rf=None, threshold=0.70):
         If provided, injects P(Exon) as the 5th channel before each prediction,
         matching the shape the model was trained on (400, 5).
         If None, assumes older model version with (400, 4) input.
+    max_samples : int | None
+        If provided, limits the number of sequences tested for faster evaluation.
     """
     # 1. Safe loading mechanism for custom layers (e.g., Attention)
     class SafeAttention(keras.layers.Attention):
@@ -88,6 +90,10 @@ def validate_model(model_path, data_test, rf=None, threshold=0.70):
 
     final_metrics = []
     raw_test_data = pickle.load(open(data_test, "rb"))
+    
+    if max_samples is not None:
+        raw_test_data = raw_test_data[:max_samples]
+        
     data_test = raw_test_data
 
     print("-" * 50)
