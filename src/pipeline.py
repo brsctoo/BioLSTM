@@ -240,7 +240,7 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
     return mod2_train, mod2_val
 
 
-def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, recreate_data=True, **injector_kwargs):
+def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, recreate_data=True, use_features=None, **injector_kwargs):
     _, _, mod2, result, rf_result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
@@ -252,7 +252,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
 
     # ETAPA 1.5: Treinar Random Forest e Extrair Features Tabulares
     log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
-    rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val)
+    rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val, use_features=use_features)
     log_stage(
         f"RANDOM FOREST — DONE. "
         f"Acurácia: {rf_metrics['accuracy']*100:.2f}% | "
@@ -395,6 +395,11 @@ def main():
     parser.add_argument("--skip-data-generation", action="store_true",
         help="Se ativada, o pipeline NÃO vai recriar os arquivos mod1/mod2 se usar 'train' ou 'full', "
              "aproveitando os arquivos que já existem (Default: Recria os arquivos sempre).")
+             
+    # RF Features flags
+    parser.add_argument("--no-kmer", action="store_true", help="Desabilita a feature de frequências de k-mers no Random Forest")
+    parser.add_argument("--no-orf", action="store_true", help="Desabilita a feature de tamanho máximo de ORF no Random Forest")
+    parser.add_argument("--no-fourier", action="store_true", help="Desabilita a feature de período 3 (Fourier) no Random Forest")
 
     args = parser.parse_args()
 
@@ -407,6 +412,12 @@ def main():
     rf_scale    = args.rf_scale
     threshold   = args.threshold
     recreate_data = not args.skip_data_generation
+
+    use_features = {
+        "kmer": not args.no_kmer,
+        "orf": not args.no_orf,
+        "fourier": not args.no_fourier,
+    }
 
     injector_kwargs = build_injector_kwargs(injection_mode, args.alpha, args.illumina_mode)
 
@@ -459,11 +470,11 @@ def main():
     if args.mode == "search_data":
         search_data_pipeline(args.name)
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
     elif args.mode == "test":
         validate_pipeline(name, threshold=threshold)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)

@@ -18,7 +18,6 @@ def fetch_genbank(query, output_filepath, max_records=500):
 
     print(f"Searching GenBank with the following query:\n{query}\n")
 
-    # 1. Descobrir o total de registros disponíveis
     handle = Entrez.esearch(db="nucleotide", term=query, retmax=0)
     record = Entrez.read(handle)
     handle.close()
@@ -30,8 +29,6 @@ def fetch_genbank(query, output_filepath, max_records=500):
         print("No records found. Please check your query.")
         return False
 
-    # 2. Definir um ponto de partida aleatório e puxar um 'pool' de IDs
-    # Puxamos até 5000 IDs para poder embaralhar, garantindo diversidade taxonômica
     pool_size = 5000
     max_start = max(0, total_count - pool_size)
     random_start = random.randint(0, max_start)
@@ -48,12 +45,10 @@ def fetch_genbank(query, output_filepath, max_records=500):
         print("Failed to retrieve IDs.")
         return False
 
-    # 3. Sortear aleatoriamente a quantidade exata que o usuário pediu
     sample_size = min(max_records, len(ids))
     sampled_ids = random.sample(ids, sample_size)
     print(f"Randomly selected {len(sampled_ids)} IDs from the pool.")
 
-    # 4. Baixar os registros finais
     print("Downloading records...")
     handle = Entrez.efetch(db="nucleotide", id=sampled_ids, rettype="gb", retmode="text")
 
@@ -93,9 +88,9 @@ def fetch_and_preprocess(query, output_name, max_records=500, injection_rate=0.0
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch and preprocess GenBank dataset for testing")
-    parser.add_argument("--query",   required=True,  help="GenBank search query")
-    parser.add_argument("--output",  required=True,  help="Output file name (without extension)")
-    parser.add_argument("--max",     type=int, default=500, help="Maximum number of records to download (default: 500)")
+    parser.add_argument("--query", required=True, help="GenBank search query")
+    parser.add_argument("--output", required=True, help="Output file name (without extension)")
+    parser.add_argument("--max", type=int, default=500, help="Maximum number of records to download (default: 500)")
     parser.add_argument("--injection_rate", type=float, default=0.0, help="Degenerate nucleotide injection rate (default: 0.0)")
     args = parser.parse_args()
 

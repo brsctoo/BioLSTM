@@ -65,8 +65,8 @@ def create_model():
     # A camada de Atenção preserva a sequência quando recebe os dois inputs iguais.
     # O holofote agora atua olhando para os pontos do tempo sem achatar a sequência inteira.
     attention_out = Attention()([lstm_out, lstm_out]) # Type: ignore
-    x = attention_out 
-    
+    x = attention_out
+
     x = BatchNormalization()(x)
     x = Dropout(0.3)(x)
 

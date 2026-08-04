@@ -11,7 +11,7 @@ def make_exons_intervals_list(location):
     if hasattr(location, 'parts') and len(location.parts) > 0:
         for part in location.parts:
             start = int(part.start)  # Already 0-based in BioPython
-            end = int(part.end) - 1  # end is exclusive, convert to inclusive
+            end = int(part.end) - 1  # End is exclusive, convert to inclusive
             exons_intervals.append([start, end])
     else:
         # Simple location (single exon)
@@ -71,18 +71,22 @@ def make_introns_list(introns_intervals, seq):
     introns = []
 
     # Verify the intron sequences based on 'GT' and 'AG' rules
-    for intron_interval in introns_intervals:
-        start = seq[intron_interval[0]:intron_interval[0]+2]
-        end = seq[intron_interval[1]-1:intron_interval[1]+1]
+    for start_idx, end_idx in introns_intervals:
+        # Extract the whole intron sequence
+        intron_seq = seq[start_idx : end_idx + 1]
 
-        # Standard case: GT...AG
-        if start == "GT" and end == "AG":
-           introns.append(seq[intron_interval[0]:intron_interval[1]+1])
-        # Special case: ...AG
-        elif start == "" and end == "AG":
-           introns.append(seq[intron_interval[0]:intron_interval[1]+1])
-        # Special case: GT...
-        elif start == "GT" and end == "":
-           introns.append(seq[intron_interval[0]:intron_interval[1]+1])
+        if not intron_seq:
+            continue
+
+        # Check the biological GT-AG rule directly on the extracted string
+        start_bases = intron_seq[:2]
+        end_bases = intron_seq[-2:]
+
+        # We consider it valid if it matches the rule OR if it was cropped
+        is_valid_start = (start_bases == "GT" or start_bases == "")
+        is_valid_end = (end_bases == "AG" or end_bases == "")
+
+        if is_valid_start and is_valid_end:
+            introns.append(intron_seq)
 
     return introns

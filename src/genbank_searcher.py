@@ -65,7 +65,7 @@ def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GEN
 
                 fetch_handle.close()
             except Exception as e:
-                print(f"⚠️ Erro no batch (possível queda de conexão do NCBI): {e}. Pulando para o próximo...")
+                print(f"Erro no batch: {e}. Pulando para o próximo...")
                 continue
             print(f"Batch processed. Records saved so far: {total_saves}/{MAX_RECORDS}")
             time.sleep(1)
