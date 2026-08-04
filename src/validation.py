@@ -53,7 +53,7 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
-def validate_model(model_path, data_test, rf=None, threshold=0.50):
+def validate_model(model_path, data_test, rf=None, threshold=0.70):
     """
     Validates the Bi-LSTM model on the test dataset.
 
@@ -88,12 +88,12 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50):
 
     final_metrics = []
     raw_test_data = pickle.load(open(data_test, "rb"))
-    data_test = []
+    data_test = raw_test_data
 
     print("-" * 50)
-    print(f"Total samples in file      : {len(raw_test_data)}")
-    print(f"Clean samples for testing  : {len(data_test)}")
-    print(f"Discarded (with NNNNNNNNN) : {len(raw_test_data) - len(data_test)}")
+    print(f"Total samples in file: {len(raw_test_data)}")
+    print(f"Clean samples for testing: {len(data_test)}")
+    print(f"Discarded (with NNNNNNNNN): {len(raw_test_data) - len(data_test)}")
     print("-" * 50)
 
     all_y_true, all_y_pred, all_y_prob = [], [], []

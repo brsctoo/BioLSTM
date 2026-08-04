@@ -321,17 +321,26 @@ def validate_pipeline(name, threshold=0.50):
     validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold)
     log_stage("VALIDATION — DONE.")
 
-def validate_specific_dataset(name):
+def validate_specific_dataset(name, dataset_name, threshold=0.50):
     import validation
     _, _, _, result, rf_result = get_output_paths(name)
-    specific_dataset = input("Enter the name of the dataset: ")
-    specific_dataset = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{specific_dataset}")
+    
+    if not dataset_name:
+        dataset_name = input("Enter the name of the dataset: ")
+        
+    if not dataset_name.endswith(".mod1"):
+        dataset_name += ".mod1"
+        
+    if os.path.isabs(dataset_name) or os.path.exists(dataset_name):
+        specific_dataset = dataset_name
+    else:
+        specific_dataset = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/{dataset_name}")
 
     log_stage("VALIDATION (custom dataset) — Loading model and test data")
     print("Model    :", result)
-    print("Test data:", specific_dataset + ".mod1")
+    print("Test data:", specific_dataset)
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, specific_dataset + ".mod1", trained_rf)
+    validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold)
     log_stage("VALIDATION — DONE.")
 
 def main():
@@ -395,6 +404,9 @@ def main():
     parser.add_argument("--skip-data-generation", action="store_true",
         help="Se ativada, o pipeline NÃO vai recriar os arquivos mod1/mod2 se usar 'train' ou 'full', "
              "aproveitando os arquivos que já existem (Default: Recria os arquivos sempre).")
+             
+    parser.add_argument("--test-dataset", type=str, default="",
+        help="Caminho ou nome do arquivo .mod1 especifico para usar com o modo 'validate_specific_dataset'. Se nao fornecido, pedira via input().")
              
     # RF Features flags
     parser.add_argument("--no-kmer", action="store_true", help="Desabilita a feature de frequências de k-mers no Random Forest")
@@ -479,7 +491,7 @@ def main():
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)
     elif args.mode == "validate_specific_dataset":
-        validate_specific_dataset(name)
+        validate_specific_dataset(name, args.test_dataset, threshold=threshold)
     elif args.mode == "create_train_test_files":
         create_train_test_files(injection_rate, injection_mode, name, window_size=window_size, **injector_kwargs)
 
