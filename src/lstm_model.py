@@ -94,8 +94,8 @@ def create_model():
     model.compile(
         optimizer=Adam(learning_rate=1e-4),
         loss={
-            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50),
-            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.50)
+            'aux_lstm_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.25),
+            'final_out': BinaryFocalCrossentropy(gamma=2.0, alpha=0.25)
         },
         loss_weights={
             'aux_lstm_out': 0.25, # Regularizador
