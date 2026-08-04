@@ -45,21 +45,6 @@ def _valid_mask(one_hot: np.ndarray) -> np.ndarray:
     return one_hot.sum(axis=2) > 1e-6            # (B, W)
 
 
-def compute_gc_content(one_hot: np.ndarray) -> np.ndarray:
-    """
-    Conteudo percentual de G+C por janela, normalizado pelo numero de
-    posicoes REAIS (nao pelo tamanho da janela), para nao subestimar o GC
-    em janelas que caem na borda da sequencia.
-    """
-    counts = one_hot.sum(axis=1)                  # (B, 4)
-    gc = counts[:, 2] + counts[:, 3]
-    at = counts[:, 0] + counts[:, 1]
-    total = gc + at
-    out = np.divide(gc, total, out=np.zeros_like(gc, dtype=np.float64),
-                    where=total > 0) * 100.0
-    return out.reshape(-1, 1).astype(np.float32)  # (B, 1)
-
-
 def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     """
     Frequencias normalizadas dos 4^k k-mers por janela.
@@ -87,26 +72,6 @@ def compute_kmer_frequencies(one_hot: np.ndarray, k: int = 3) -> np.ndarray:
     total = counts.sum(axis=1, keepdims=True)
     return np.divide(counts, total, out=np.zeros_like(counts),
                      where=total > 0)
-
-
-def compute_positional_asymmetry(one_hot: np.ndarray) -> np.ndarray:
-    """
-    Inspirado no Fickett TESTCODE (1982): frequencia das 4 bases agrupadas
-    por posicao no codon (1a, 2a, 3a). 12 features.
-
-    Cada fase e normalizada pelo proprio numero de posicoes, para funcionar
-    quando o tamanho da janela nao e multiplo de 3 (o recorte central pode
-    nao ser).
-    """
-    blocks = []
-    for phase in range(3):
-        sub = one_hot[:, phase::3, :]
-        counts = sub.sum(axis=1)                            # (B, 4)
-        total = counts.sum(axis=1, keepdims=True)
-        blocks.append(np.divide(counts, total,
-                                out=np.zeros_like(counts, dtype=np.float64),
-                                where=total > 0))
-    return np.concatenate(blocks, axis=1).astype(np.float32)  # (B, 12)
 
 
 def compute_max_orf_length(one_hot: np.ndarray) -> np.ndarray:
@@ -175,63 +140,52 @@ def compute_fourier_period_3(one_hot: np.ndarray) -> np.ndarray:
 
 
 
-def _single_scale(one_hot: np.ndarray, k: int) -> np.ndarray:
+def _single_scale(one_hot: np.ndarray, k: int, use_features: dict = None) -> np.ndarray:
     """Bloco de features de UMA janela."""
-    return np.concatenate([
-        compute_gc_content(one_hot),                 # 1
-        compute_kmer_frequencies(one_hot, k=k),      # 4^k
-        compute_positional_asymmetry(one_hot),       # 12
-        compute_max_orf_length(one_hot),             # 1
-        compute_fourier_period_3(one_hot),           # 1
-    ], axis=1).astype(np.float32)
+    if use_features is None:
+        use_features = {"kmer": True, "orf": True, "fourier": True}
+        
+    blocks = []
+    if use_features.get("kmer", True):
+        blocks.append(compute_kmer_frequencies(one_hot, k=k))
+    if use_features.get("orf", True):
+        blocks.append(compute_max_orf_length(one_hot))
+    if use_features.get("fourier", True):
+        blocks.append(compute_fourier_period_3(one_hot))
+        
+    return np.concatenate(blocks, axis=1).astype(np.float32)
 
 
-def build_feature_matrix(one_hot: np.ndarray, k: int = 3,
-                         two_scale: bool = True) -> np.ndarray:
+def build_feature_matrix(one_hot: np.ndarray, k: int = 3, use_features: dict = None) -> np.ndarray:
     """
     Converte o tensor One-Hot 3D numa matriz tabular 2D para o Random Forest.
 
-    two_scale=True concatena dois blocos:
-      - escala EXTERNA: a janela inteira (contexto composicional amplo)
-      - escala INTERNA: o quarto central da janela, i.e. W/2 bases
-        centradas (assinatura local, onde o rotulo de fato mora)
-
-    Medido: +1.9 pp de acuracia sobre escala unica. Sem isso o RF ve uma
-    unica sacola de k-mers e nao consegue separar centro de periferia.
-
-    Numero de colunas: (1 + 4^k + 12 + 1 + 1) por escala.
-      k=3, two_scale=True  -> 79 * 2 = 158
-      k=3, two_scale=False -> 79
-      k=2, two_scale=True  -> 31 * 2 = 62
+    O modelo foi configurado para rodar em escala UNICA (passada puramente macro),
+    avaliando a janela inteira como contexto global (compositional stats).
     """
-    outer = _single_scale(one_hot, k)
-    if not two_scale:
-        return outer
-
-    W = one_hot.shape[1]
-    q = max(W // 4, 3)
-    center = one_hot[:, W // 2 - q: W // 2 + q, :]
-    inner = _single_scale(center, k)
-    return np.concatenate([outer, inner], axis=1).astype(np.float32)
+    return _single_scale(one_hot, k, use_features)
 
 
-def get_feature_names(k: int = 3, two_scale: bool = True) -> list[str]:
+def get_feature_names(k: int = 3, use_features: dict = None) -> list[str]:
     import itertools
     """Nomes das features, na mesma ordem de build_feature_matrix."""
+    if use_features is None:
+        use_features = {"kmer": True, "orf": True, "fourier": True}
+        
     bases = ["A", "T", "G", "C"]
     kmers = ["".join(p) for p in itertools.product(bases, repeat=k)]
 
     def block(prefix):
-        n = [f"{prefix}%GC"]
-        n += [f"{prefix}{m}" for m in kmers]
-        n += [f"{prefix}Fickett_Pos{p}_{b}" for p in (1, 2, 3) for b in bases]
-        n += [f"{prefix}Max_ORF_Length", f"{prefix}Fourier_Period3"]
+        n = []
+        if use_features.get("kmer", True):
+            n += [f"{prefix}{m}" for m in kmers]
+        if use_features.get("orf", True):
+            n += [f"{prefix}Max_ORF_Length"]
+        if use_features.get("fourier", True):
+            n += [f"{prefix}Fourier_Period3"]
         return n
 
-    names = block("out_")
-    if two_scale:
-        names += block("in_")
-    return names
+    return block("out_")
 
 
 # =============================================================================
@@ -248,7 +202,7 @@ def train_rf(
     min_samples_leaf: int = 2,
     random_state: int = 42,
     k: int = 3,
-    two_scale: bool = True,
+    use_features: dict = None,
 ) -> RandomForestClassifier:
     """
     Treina o RandomForestClassifier.
@@ -280,26 +234,28 @@ def train_rf(
 
     # --- metadados do esquema de features ---
     model.feature_k = k                                    # type: ignore[attr-defined]
-    model.feature_two_scale = two_scale                    # type: ignore[attr-defined]
     model.feature_schema_version = FEATURE_SCHEMA_VERSION   # type: ignore[attr-defined]
+    if use_features is None:
+        use_features = {"kmer": True, "orf": True, "fourier": True}
+    model.use_features = use_features                      # type: ignore[attr-defined]
 
     return model
 
 
-def get_feature_config(rf) -> tuple[int, bool]:
+def get_feature_config(rf) -> tuple[int, dict]:
     """
-    Recupera (k, two_scale) do modelo. Modelos antigos, salvos antes dos
-    metadados existirem, caem no esquema legado de escala unica — e o k e
-    deduzido do numero de colunas apenas nesse caso.
+    Recupera (k, use_features) do modelo.
     """
+    default_features = {"kmer": True, "orf": True, "fourier": True}
     if getattr(rf, "feature_schema_version", None) == FEATURE_SCHEMA_VERSION:
-        return rf.feature_k, rf.feature_two_scale
+        use_features = getattr(rf, "use_features", default_features)
+        return rf.feature_k, use_features
 
     n = getattr(rf, "n_features_in_", 17)
     k = 3 if n >= 65 else 2
     print(f"  [RF] Aviso: modelo sem metadados de esquema ({n} colunas). "
-          f"Assumindo legado k={k}, escala unica.")
-    return k, False
+          f"Assumindo legado k={k}.")
+    return k, default_features
 
 
 # =============================================================================
@@ -309,7 +265,21 @@ def get_feature_config(rf) -> tuple[int, bool]:
 def evaluate_rf(model, X_val: np.ndarray, y_val: np.ndarray,
                 *, verbose: bool = True) -> dict:
     """Avalia o modelo no conjunto de validacao."""
-    y_pred = model.predict(X_val)
+    y_proba = model.predict_proba(X_val)[:, 1]
+
+    # Threshold tuning
+    thresholds = np.linspace(0.1, 0.9, 81)
+    best_thresh = 0.5
+    best_f1 = 0.0
+    for t in thresholds:
+        pred_t = (y_proba >= t).astype(int)
+        f1_t = f1_score(y_val, pred_t, average="macro", zero_division=0)
+        if f1_t > best_f1:
+            best_f1 = f1_t
+            best_thresh = t
+
+    model.best_threshold_ = best_thresh
+    y_pred = (y_proba >= best_thresh).astype(int)
 
     acc       = accuracy_score(y_val, y_pred)
     f1_exon   = f1_score(y_val, y_pred, pos_label=1, zero_division=0)
@@ -330,7 +300,7 @@ def evaluate_rf(model, X_val: np.ndarray, y_val: np.ndarray,
 
     if verbose:
         _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report,
-                          triv_acc, triv_f1m, majority)
+                          triv_acc, triv_f1m, majority, best_thresh)
 
     return {
         "accuracy": acc,
@@ -341,15 +311,17 @@ def evaluate_rf(model, X_val: np.ndarray, y_val: np.ndarray,
         "report": report,
         "trivial_accuracy": triv_acc,
         "trivial_f1_macro": triv_f1m,
+        "best_threshold": best_thresh,
     }
 
 
 def _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report,
-                      triv_acc, triv_f1m, majority):
+                      triv_acc, triv_f1m, majority, best_thresh=0.5):
     sep = "=" * 60
     print(f"\n{sep}")
     print("  RANDOM FOREST — RESULTADOS DE VALIDACAO")
     print(sep)
+    print(f"  {'Limiar Otimizado':<25}: {best_thresh:.3f}")
     print(f"  {'Acuracia':<25}: {acc * 100:.2f}%")
     print(f"  {'F1-Score  Exon  (1)':<25}: {f1_exon * 100:.2f}%")
     print(f"  {'F1-Score  Intron (0)':<25}: {f1_intron * 100:.2f}%")
@@ -382,7 +354,9 @@ def evaluate_rf_microscope(model, X_val: np.ndarray, y_val_center: np.ndarray,
               "a analise por janela pura/mista.")
         return
 
-    y_pred = model.predict(X_val)
+    y_proba = model.predict_proba(X_val)[:, 1]
+    best_thresh = getattr(model, "best_threshold_", 0.5)
+    y_pred = (y_proba >= best_thresh).astype(int)
 
     idx_pure_intron = np.all(y_val_window == 0, axis=1)
     idx_pure_exon   = np.all(y_val_window == 1, axis=1)
@@ -436,8 +410,8 @@ def rf_proba(rf, one_hot: np.ndarray) -> np.ndarray:
     P(Exon) por janela, para dados NAO vistos pelo RF (validacao/teste).
     Retorna (B,) — sem construir o tensor de 5 canais.
     """
-    k, two_scale = get_feature_config(rf)
-    X_tab = build_feature_matrix(one_hot, k=k, two_scale=two_scale)
+    k, use_features = get_feature_config(rf)
+    X_tab = build_feature_matrix(one_hot, k=k, use_features=use_features)
 
     expected = getattr(rf, "n_features_in_", X_tab.shape[1])
     if X_tab.shape[1] != expected:
@@ -516,8 +490,8 @@ def save_rf(rf, path: str) -> None:
     import joblib
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     joblib.dump(rf, path)
-    k, two_scale = get_feature_config(rf)
-    print(f"  [RF] Modelo salvo em: {path}  (k={k}, two_scale={two_scale})")
+    k, use_features = get_feature_config(rf)
+    print(f"  [RF] Modelo salvo em: {path}  (k={k})")
 
 
 def load_rf(path: str):
@@ -527,8 +501,8 @@ def load_rf(path: str):
               f"(validacao prosseguira sem injecao)")
         return None
     rf = joblib.load(path)
-    k, two_scale = get_feature_config(rf)
-    print(f"  [RF] Modelo carregado de: {path}  (k={k}, two_scale={two_scale})")
+    k, use_features = get_feature_config(rf)
+    print(f"  [RF] Modelo carregado de: {path}  (k={k})")
     return rf
 
 
@@ -541,7 +515,7 @@ def run_rf_pipeline(
     mod2_val_path: str,
     *,
     k: int = 3,
-    two_scale: bool = True,
+    use_features: dict = None,
 ) -> tuple[dict, RandomForestClassifier]:
     """
     Treina o RF em TODAS as janelas de treino e avalia em todas as de
@@ -603,12 +577,12 @@ def run_rf_pipeline(
         print(f"  [RF] Composicao do treino: {100 * pure.mean():.0f}% puras, "
               f"{100 * (1 - pure.mean()):.0f}% mistas — TODAS serao usadas.")
 
-    print(f"  [RF] Extraindo features (k={k}, two_scale={two_scale})...")
-    X_train = build_feature_matrix(X_train_ohe, k=k, two_scale=two_scale)
-    X_val = build_feature_matrix(X_val_ohe, k=k, two_scale=two_scale)
+    print(f"  [RF] Extraindo features em escala unica (k={k})...")
+    X_train = build_feature_matrix(X_train_ohe, k=k, use_features=use_features)
+    X_val = build_feature_matrix(X_val_ohe, k=k, use_features=use_features)
     print(f"  [RF] Feature matrix — treino: {X_train.shape} | val: {X_val.shape}")
 
-    rf = train_rf(X_train, y_train, k=k, two_scale=two_scale)
+    rf = train_rf(X_train, y_train, k=k, use_features=use_features)
 
     metrics = evaluate_rf(rf, X_val, y_val, verbose=True)
     evaluate_rf_microscope(rf, X_val, y_val_center=y_val,
@@ -621,6 +595,7 @@ def run_rf_pipeline(
     print(f"  treino: {X_train_ohe.shape} | % exon: {round(100 * y_train.mean(), 1)}%")
     print(f"  val   : {X_val_ohe.shape} | % exon: {round(100 * y_val.mean(), 1)}%")
     print(f"  OOB score do RF: {round(rf.oob_score_, 4)}")
+    print(f"  Limiar Otimiz. : {round(metrics.get('best_threshold', 0.5), 3)}")
     print(f"  F1_macro       : {round(metrics['f1_macro'], 4)}")
     print("=" * 60 + "\n")
 
@@ -641,15 +616,21 @@ if __name__ == "__main__":
     parser.add_argument("--val", required=True, help="Caminho do .npz de validacao.")
     parser.add_argument("--k", type=int, default=3, choices=[2, 3, 4],
                         help="Tamanho do k-mer (default: 3).")
-    parser.add_argument("--single-scale", action="store_true",
-                        help="Desliga as features de duas escalas (nao recomendado).")
+    parser.add_argument("--no-kmer", action="store_true", help="Desabilita k-mer frequencies feature")
+    parser.add_argument("--no-orf", action="store_true", help="Desabilita max ORF length feature")
+    parser.add_argument("--no-fourier", action="store_true", help="Desabilita Fourier Period 3 feature")
     args = parser.parse_args()
 
     print("\n" + "=" * 60)
     print("  RF Standalone")
     print("=" * 60)
+    use_features = {
+        "kmer": not args.no_kmer,
+        "orf": not args.no_orf,
+        "fourier": not args.no_fourier,
+    }
     metrics, rf = run_rf_pipeline(args.train, args.val,
-                                  k=args.k, two_scale=not args.single_scale)
+                                  k=args.k, use_features=use_features)
     print(f"\n  Acuracia Final : {metrics['accuracy'] * 100:.2f}%")
     print(f"  F1 Macro Final : {metrics['f1_macro'] * 100:.2f}%")
     print(f"  (baseline trivial: {metrics['trivial_f1_macro'] * 100:.2f}% F1 macro)")

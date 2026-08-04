@@ -28,7 +28,7 @@ import gc
 import numpy as np
 import pickle
 
-# Central window size — overridden at runtime by pipeline.py via set_window_size()
+# Central window size
 WINDOW_SIZE = 400
 
 def set_window_size(size: int) -> None:
@@ -63,7 +63,7 @@ total_bases_count = 0
 def tag_positions(sample) -> list[int]:
     """Tag each position in the sequence as exon (1) or intron (0)."""
 
-    tag = [-1] * len(sample["sequence"])  # Initialize all positions as intron (0)
+    tag = [-1] * len(sample["sequence"])  # Initialize all positions as -1
 
     for start, end in sample["intron_intervals"]:
         for i in range(start, end + 1):
@@ -71,7 +71,7 @@ def tag_positions(sample) -> list[int]:
                 tag[i] = 0  # Real intron
 
     for start, end in sample["exon_intervals"]:
-        for i in range(start, end + 1): # Inclusive end position
+        for i in range(start, end + 1):
             if 0 <= i < len(tag):
                 tag[i] = 1  # Mark exon positions as 1
 
@@ -79,7 +79,8 @@ def tag_positions(sample) -> list[int]:
 
 def slide_window(sample, window_size=None) -> list[list[int]]:
     """Create a sliding window centered at the given position."""
-    if window_size is None: window_size = WINDOW_SIZE
+    if window_size is None:
+         window_size = WINDOW_SIZE
 
     half = window_size // 2
     seq = transform_baseSeq_to_onehot(sample["sequence"])
@@ -109,13 +110,13 @@ def transform_baseSeq_to_onehot(baseSeq) -> np.ndarray:
     total_bases_count += len(baseSeq)
 
     for base in baseSeq.upper():
-        if base in BASE_TO_VECTOR:
-            if base not in ['A', 'T', 'G', 'C']:
-                global degenerate_bases_count
-                degenerate_bases_count += 1
+        # Degenerance counter
+        if base in BASE_TO_VECTOR and base not in ['A', 'T', 'G', 'C']:
+            global degenerate_bases_count
+            degenerate_bases_count += 1
 
         encoded.append(
-            BASE_TO_VECTOR.get(base, [0,0,0,0])  # unknown → padding
+            BASE_TO_VECTOR.get(base, [0,0,0,0]) # Unknown = Padding
         )
 
     return np.array(encoded, dtype=np.float16) # Convert to numpy array for better performance in model training
@@ -150,117 +151,125 @@ def extract_windows_numpy(seq_onehot, indices, window_size=None):
     Extract windows using numpy slicing with vectorized padding.
     Avoids building heavy intermediate Python lists of lists.
     """
-    if window_size is None: window_size = WINDOW_SIZE
-    half = window_size // 2
-    n = len(seq_onehot)
+    if window_size is None:
+         window_size = WINDOW_SIZE
 
-    # Pre-allocate the final array memory region directly
+    half = window_size // 2
+    num_seq = len(seq_onehot)
+
+    # 1. Create a matrix filled with ZEROS.
     X = np.zeros((len(indices), window_size, 4), dtype=np.float16)
 
-    for i, k in enumerate(indices):
-        start, end = k - half, k + half
+    for i, center_pos in enumerate(indices):
+        # 2. Calculate the ideal window boundaries
+        ideal_start = center_pos - half
+        ideal_end = center_pos + half
 
-        # Calculate coordinates bounding box inside sequence range
-        src_start = max(0, start)
-        src_end   = min(n, end)
-        dst_start = src_start - start  # Destination offset (where boundary padding ends)
-        dst_end   = dst_start + (src_end - src_start)
+        # 3. In the real DNA sequence, slice
+        seq_start = max(0, ideal_start)
+        seq_end = min(num_seq, ideal_end)
 
-        X[i, dst_start:dst_end] = seq_onehot[src_start:src_end]
-        # Any index out of bounds remains zero natively due to np.zeros configuration
+        # 4. Inside the 400-space window, where to "paste" the DNA
+        # If ideal_start was -10, seq_start will be 0. So 0 - (-10) = +10.
+        # Meaning we start pasting the DNA at position 10 of the window (leaving 10 zeros at the beginning).
+        window_start = seq_start - ideal_start
+
+        # The end position in the window is simply the start + the size of the sliced piece
+        slice_length = seq_end - seq_start
+        window_end = window_start + slice_length
+
+        # 5. Paste the exact DNA slice into the exact spot in the window
+        X[i, window_start:window_end] = seq_onehot[seq_start:seq_end]
 
     return X
 
 def extract_windows_labels_numpy(tagged_arr, indices, window_size=None):
-    if window_size is None: window_size = WINDOW_SIZE
-    half = window_size // 2
-    n = len(tagged_arr)
+    """
+    Extract the label windows (0 for intron, 1 for exon) using numpy slicing.
+    Pads out-of-bounds regions with -1 so the model can ignore them during training.
+    """
+    if window_size is None:
+        window_size = WINDOW_SIZE
 
-    # Preenche com -1 (desconhecido/fora do genoma)
+    half = window_size // 2
+    num_seq = len(tagged_arr)
+
+    # 1. Create a matrix filled with -1
     Y_win = np.full((len(indices), window_size), -1, dtype=np.int8)
 
-    for i, k in enumerate(indices):
-        start, end = k - half, k + half
-        src_start = max(0, start)
-        src_end   = min(n, end)
-        dst_start = src_start - start
-        dst_end   = dst_start + (src_end - src_start)
+    for i, center_pos in enumerate(indices):
+        # 2. Calculate the ideal window boundaries
+        ideal_start = center_pos - half
+        ideal_end = center_pos + half
 
-        Y_win[i, dst_start:dst_end] = tagged_arr[src_start:src_end]
+        # 3. Slice boundaries within the valid array length
+        seq_start = max(0, ideal_start)
+        seq_end   = min(n, ideal_end)
+
+        # 4. Where to paste this valid slice inside the window
+        # Example: If ideal_start is -20, seq_start is 0. window_start becomes +20.
+        window_start = seq_start - ideal_start
+
+        # The end position in the window is simply the start + slice length
+        slice_length = seq_end - seq_start
+        window_end   = window_start + slice_length
+
+        # 5. Paste the exact labels slice into the target window
+        Y_win[i, window_start:window_end] = tagged_arr[seq_start:seq_end]
 
     return Y_win
 
-def extract_balanced_windows(sample, tagged_seq, window_size=None):
-    if window_size is None: window_size = WINDOW_SIZE
-    tagged_arr = np.asarray(tagged_seq)  # Prevents repetitive evaluations of .index() loops
-
-    indices_intron = np.where(tagged_arr == 0)[0]
-    indices_exon = np.where(tagged_arr == 1)[0]
-
-    min_len = min(len(indices_intron), len(indices_exon))
-    if min_len == 0:
-        return None, None
-
-    # Sample configurations randomly without initiating major standard Python structures
-    idx_i = np.random.choice(indices_intron, min_len, replace=False)
-    idx_e = np.random.choice(indices_exon,   min_len, replace=False)
-
-    final_indices = np.concatenate([idx_i, idx_e])
-    np.random.shuffle(final_indices)
-
-    # Only cast target elements to one-hot structure conditionally as required
-    seq_onehot = transform_baseSeq_to_onehot(sample["sequence"])
-    seq_onehot = np.asarray(seq_onehot, dtype=np.float16)  # Execute single pass matrix conversion
-
-    X = extract_windows_numpy(seq_onehot, final_indices, window_size)
-    y = tagged_arr[final_indices].astype(np.int8)
-
-    return X, y
-
 def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
     """
-    Generate X, y dataset from a list of gene samples WITHOUT global
+    Generate X, y dataset from a list of gene samples without global
     undersampling, preserving the natural exon/intron class distribution.
     """
-    if window_size is None: window_size = WINDOW_SIZE
+
+    if window_size is None:
+         window_size = WINDOW_SIZE
+
+    # Lists to store the matrices generated for each individual gene
     X_blocks = []
     y_blocks = []
-    y_window_blocks = []
 
     for i, sample in enumerate(gene_list):
+        # Print progress every 50 genes
         if i % 50 == 0:
-            print(f"  Processing gene {i+1}/{len(gene_list)}")
+            print(f"Processing gene {i+1}/{len(gene_list)}")
 
+        # 1. Tag the DNA sequence (1 for exon, 0 for intron, -1 for unknown)
         tagged_seq = tag_positions(sample)
         tagged_arr = np.asarray(tagged_seq)
 
-        # Only annotated positions (skip -1 UTR/flanking regions)
+        # 2. Find valid center positions
+        # Only center windows on annotated positions (skip -1 flanking regions)
         indices = np.where(tagged_arr >= 0)[0]
-
-        # --- A MÁGICA DO STRIDE ENTRA AQUI ---
-        # Aplica o fatiamento para pegar 1 posição a cada X nucleotídeos
         indices = indices[::stride]
-        # -------------------------------------
 
+        # If the gene is too small or has no valid annotations
         if len(indices) == 0:
             continue
 
+        # 3. Convert the raw DNA string into the One-Hot numeric matrix
         seq_onehot = transform_baseSeq_to_onehot(sample["sequence"])
         seq_onehot = np.asarray(seq_onehot, dtype=np.float16)
 
+        # 4. Extract the DNA features (X) and the labels (y) using numpy tools
         X = extract_windows_numpy(seq_onehot, indices, window_size)
         y = extract_windows_labels_numpy(tagged_arr, indices, window_size)
 
+        # Append the processed matrices of this gene to our blocks
         X_blocks.append(X)
         y_blocks.append(y)
 
     if not X_blocks:
         raise ValueError("No windows were generated. Check the input data.")
 
+    # 6. Glue all individual gene blocks into one massive array
     X_final = np.concatenate(X_blocks, axis=0)
     y_final = np.concatenate(y_blocks, axis=0)
 
-    # Shuffle within the split to remove sequential ordering bias
+    # 7. Shuffle the rows so the model doesn't memorize the sequential order of genes
     rng_idx = np.random.permutation(len(y_final))
     return X_final[rng_idx], y_final[rng_idx]
 
@@ -268,19 +277,12 @@ def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
 def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_output,
                                    val_gene_fraction=0.2):
     """
-    CORRECTED VERSION: splits genes BEFORE generating windows, eliminating
+    Splits genes BEFORE generating windows, eliminating
     data leakage caused by overlapping sliding windows across train/val sets.
 
-    Key differences from modeling_train_data:
-      - Split unit is the GENE (independent entity), not the window (derived).
-      - Windows are generated separately for each split — no cross-contamination.
-      - Natural exon/intron distribution is PRESERVED (no 50/50 balancing).
-        Class imbalance is handled by BinaryFocalCrossentropy + class_weight
-        in train_model_gene_split.
-
     Saves two separate .npz files:
-      XY_train_output : 80% of genes -> training windows
-      XY_val_output   : 20% of genes -> validation windows
+        XY_train_output : 80% of genes -> training windows
+        XY_val_output   : 20% of genes -> validation windows
 
     Args:
         data_filepath_input : path to the .mod1 pickle file produced by genbank_reader.
@@ -296,7 +298,7 @@ def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_
     print(f"Total genes loaded: {len(data)}")
 
     # 1. Split at the GENE level (independent unit)
-    n_val   = max(1, int(len(data) * val_gene_fraction))
+    n_val = max(1, int(len(data) * val_gene_fraction))
     n_train = len(data) - n_val
 
     # Shuffle genes (not windows!)

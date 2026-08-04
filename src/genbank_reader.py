@@ -39,13 +39,20 @@ MAX_SEQUENCE_LENGTH = 20000
 
 
 def validate_register(record):
-    cds_features = [f for f in record.features if f.type == "CDS"]
-    return len(cds_features) > 0
+    """
+    Checks if the record contains at least one Coding DNA Sequence (CDS) feature.
+    """
 
+    cds_features = []
+
+    for feature in record.features:
+        if feature.type == "CDS":
+            cds_features.append(feature)
+    return len(cds_features) > 0
 
 def read_records(genbank_input_filepath):
     """
-    STEP 1 — Read the GenBank file and return the cleaned records, WITHOUT injection.
+    STEP 1 — Read the GenBank file and return the cleaned records
 
     For each valid record this resolves the target feature (mRNA containing the CDS,
     falling back to the CDS itself), crops the sequence to the gene span, handles the
@@ -63,12 +70,13 @@ def read_records(genbank_input_filepath):
         try:
             # Converts to string AND ensures uppercase to prevent hidden bugs
             full_seq = str(register.seq).upper()
-        except Exception:
-            # Pula registros GenBank vazios ou apenas com features (UndefinedSequenceError)
+        except AttributeError:
+            # Occurs if 'register' does not have a '.seq' attribute.
             continue
 
         if len(full_seq) > MAX_SEQUENCE_LENGTH:
-            # print(f"Skipping sequence with {len(full_seq)} bases...")
+            # Skip sequences that are too big
+            print(f"Skipping sequence with {len(full_seq)} bases...")
             continue
 
         # Gets the CDS feature first
@@ -79,38 +87,35 @@ def read_records(genbank_input_filepath):
                 break
 
         if cds_feature is None:
-            # print("Skipping sequence because it lacks a CDS")
             continue
 
-        # Looks for the mRNA that contains the CDS
-        target_feature = None
+        # 1. CDS feature
+        target_feature = cds_feature
         cds_start = int(cds_feature.location.start)
-        cds_end   = int(cds_feature.location.end)
+        cds_end = int(cds_feature.location.end)
 
         for feature in register.features:
             if feature.type == "mRNA":
-                mrna_start = int(feature.location.start)
-                mrna_end   = int(feature.location.end)
-                if mrna_start <= cds_start and mrna_end >= cds_end:
+                start = int(feature.location.start)
+                end = int(feature.location.end)
+
+                if start <= cds_start and end >= cds_end:
                     target_feature = feature
-                    break
+                    break  # Found it
 
         if target_feature is None:
             target_feature = cds_feature
 
-        mrna_start = int(target_feature.location.start)
-        mrna_end   = int(target_feature.location.end)
+        target_start = int(target_feature.location.start)
+        target_end = int(target_feature.location.end)
 
-        # Crops EXACTLY the size of the gene (ignores the thousands of base pairs around it)
-        cropped_seq_obj = register.seq[mrna_start:mrna_end]
+        # Crops the size of the gene
+        cropped_seq_obj = register.seq[target_start:target_end]
 
-        # Uses your extractor to get raw coordinates
         exons_intervals_raw = re.make_exons_intervals_list(target_feature.location)
+        exons_intervals = [[s - target_start, e - target_start] for s, e in exons_intervals_raw]
 
-        # Shifts coordinates to the new "Point Zero" (since the start was cropped)
-        exons_intervals = [[s - mrna_start, e - mrna_start] for s, e in exons_intervals_raw]
-
-        # 2. REVERSE STRAND
+        # 2. Reverse Strand
         if target_feature.location.strand == -1:
             # Flips the strand inside out (A becomes T, C becomes G, and reversed)
             seq = str(cropped_seq_obj.reverse_complement()).upper()
@@ -124,8 +129,7 @@ def read_records(genbank_input_filepath):
                 new_end = L - 1 - s
                 exons_intervals_rev.append([new_start, new_end])
 
-            # Since the strand was reversed, the last exons became the first ones.
-            # So we reorder the list so Python reads it correctly from left to right.
+            # Reorder the list so Python reads it correctly from left to right.
             exons_intervals = sorted(exons_intervals_rev, key=lambda x: x[0])
         else:
             # If it is a forward strand, just convert to string and proceed
@@ -148,7 +152,7 @@ def remove_duplicates(raw):
     """
     STEP 2 — Remove duplicate records, keyed on the ORIGINAL cropped sequence.
 
-    This MUST run before injection. The injected sequence is not a valid key:
+    Run before injection. The injected sequence is not a valid key:
     the substitutions are drawn at random, so two copies of the same gene would
     produce two different strings and both would survive.
     """
@@ -187,7 +191,7 @@ def apply_injection(unique, injection_rate, injection_mode=DEFAULT_INJECTION_MOD
     data = []
 
     for item in unique:
-        exons_intervals   = item["exon_intervals"]
+        exons_intervals = item["exon_intervals"]
         introns_intervals = item["intron_intervals"]
 
         seq = injector(
@@ -239,9 +243,9 @@ def separate_train_test(data, test_size=0.2):
 def save_dataset_to_file(genbank_filepath_output, data):
     """Save the processed data to a file."""
 
-    file = open(genbank_filepath_output, "wb") # open
-    pickle.dump(data, file) # write
-    file.close() # close
+    file = open(genbank_filepath_output, "wb") # Open
+    pickle.dump(data, file) # Write
+    file.close() # Close
 
 
 def save_preprocessed_genbank_file(genbank_input_filepath, genbank_filepath_output, INJECTION_RATE,
