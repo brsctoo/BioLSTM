@@ -204,7 +204,7 @@ def extract_windows_labels_numpy(tagged_arr, indices, window_size=None):
 
         # 3. Slice boundaries within the valid array length
         seq_start = max(0, ideal_start)
-        seq_end   = min(n, ideal_end)
+        seq_end   = min(num_seq, ideal_end)
 
         # 4. Where to paste this valid slice inside the window
         # Example: If ideal_start is -20, seq_start is 0. window_start becomes +20.
