@@ -53,6 +53,14 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
+def fp_boundary_distances(sample, Y, y_pred, mask):
+    """Para cada falso positivo (Y=0, pred=1), distância até a borda éxon/íntron mais próxima."""
+    boundaries = np.array([b for s, e in sample["exon_intervals"] for b in (s, e)])
+    fp_idx = np.where((Y == 0) & (np.asarray(y_pred) == 1) & mask)[0]
+    if len(fp_idx) == 0 or len(boundaries) == 0:
+        return []
+    return np.min(np.abs(fp_idx[:, None] - boundaries[None, :]), axis=1).tolist()
+
 def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=None):
     """
     Validates the Bi-LSTM model on the test dataset.
@@ -103,6 +111,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
     print("-" * 50)
 
     all_y_true, all_y_pred, all_y_prob = [], [], []
+    all_fp_distances = []
 
     count = 0
     for sample in data_test:
@@ -166,6 +175,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         all_y_true.extend(Y[mask].tolist())
         all_y_pred.extend(predict_smoothed[mask].tolist())
         all_y_prob.extend(prob[mask].tolist())
+        all_fp_distances.extend(fp_boundary_distances(sample, Y, predict_smoothed, mask))
 
         # 4. Needleman-Wunsch
         # Final sequence of predicted exons and introns
@@ -256,6 +266,14 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
     print("═" * 50)
     print("POSITIONAL METRIC (splice site boundaries)")
     print("═" * 50)
+    
+    d = np.array(all_fp_distances)
+    if len(d):
+        print(f"FP a <=10bp de uma borda   : {np.mean(d <= 10)*100:.1f}%")
+        print(f"FP a <=50bp de uma borda   : {np.mean(d <= 50)*100:.1f}%")
+        print(f"FP a  >50bp (meio do intron): {np.mean(d > 50)*100:.1f}%")
+        print(f"Distância mediana          : {np.median(d):.1f}bp")
+        print("═" * 50)
 
     for name, metric in keras_metrics.items():
         value = metric.result().numpy()
