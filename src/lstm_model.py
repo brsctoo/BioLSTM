@@ -54,7 +54,10 @@ def create_model():
     # Alimentamos o One-Hot DNA diretamente para a Bi-LSTM
     x = Dropout(0.1)(inp_dna) # Um dropout leve na entrada para regularização
 
-    # --- 2. Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
+    # --- 2. Deep Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
+    # Primeira camada: atua como extratora de motivos locais (substituindo a CNN)
+    x = Bidirectional(LSTM(128, return_sequences=True, dropout=0.3))(x)
+    # Segunda camada: integra o contexto global ao longo dos 200bp
     lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
 
     # A camada de Atenção preserva a sequência quando recebe os dois inputs iguais.
