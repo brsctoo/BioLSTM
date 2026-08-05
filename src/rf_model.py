@@ -227,25 +227,9 @@ def train_rf(
         n_jobs=-1,
     )
 
-    # Undersampling Perfeito 50/50
-    print("  [RF] Realizando undersampling perfeito 50/50...")
-    idx_0 = np.where(y_train == 0)[0]
-    idx_1 = np.where(y_train == 1)[0]
-    
-    min_len = min(len(idx_0), len(idx_1))
-    np.random.seed(random_state)
-    idx_0_under = np.random.choice(idx_0, min_len, replace=False)
-    idx_1_under = np.random.choice(idx_1, min_len, replace=False)
-    
-    balanced_idx = np.concatenate([idx_0_under, idx_1_under])
-    np.random.shuffle(balanced_idx)
-    
-    X_train_bal = X_train[balanced_idx]
-    y_train_bal = y_train[balanced_idx]
-
     print(f"  [RF] Treinando RandomForest ({n_estimators} arvores, "
-          f"max_depth={max_depth}, amostras={len(y_train_bal)})...")
-    model.fit(X_train_bal, y_train_bal)
+          f"max_depth={max_depth}, features={X_train.shape[1]})...")
+    model.fit(X_train, y_train)
     print(f"  [RF] Treinamento concluido. OOB Score: {model.oob_score_:.4f}")
 
     # --- metadados do esquema de features ---
