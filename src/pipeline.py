@@ -105,7 +105,7 @@ MAX_PER_SPECIES = 200  # Aumentado de 50 para 200 para agilizar o download
 MAX_GENERAL = 500000    # Tamanho do "pool" aleatório que vamos baixar os IDs
 MAX_HOUSEKEEPING = 0   # Ignorado na nova abordagem
 
-QUERY_GENERAL = '"exon"[Feature key] AND "intron"[Feature key] AND biomol_genomic[PROP]'
+QUERY_GENERAL = '"exon"[Feature key] AND "intron"[Feature key] AND "CDS"[Feature key] AND biomol_genomic[PROP]'
 QUERY_HOUSEKEEPING = '' # Não será mais utilizado
 # -------------------------------------------------
 
