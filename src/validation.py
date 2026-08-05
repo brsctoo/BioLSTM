@@ -8,6 +8,7 @@ import modeling
 import numpy as np
 import pickle
 import keras
+import tensorflow as tf
 from minineedle import needle # type: ignore
 
 def smooth_predict(predict_raw, window_size=20):
@@ -90,7 +91,20 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
     except AttributeError:
         pass
 
-    loaded_model = keras.models.load_model(model_path, custom_objects={'Attention': SafeAttention})
+    def extract_6mers(x_tensor):
+        indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32)
+        paddings = tf.constant([[0, 0], [2, 3]])
+        padded = tf.pad(indices, paddings, mode='CONSTANT', constant_values=0)
+        pos1 = padded[:, :-5]
+        pos2 = padded[:, 1:-4]
+        pos3 = padded[:, 2:-3]
+        pos4 = padded[:, 3:-2]
+        pos5 = padded[:, 4:-1]
+        pos6 = padded[:, 5:]
+        kmer_id = pos1 * 1024 + pos2 * 256 + pos3 * 64 + pos4 * 16 + pos5 * 4 + pos6
+        return kmer_id
+
+    loaded_model = keras.models.load_model(model_path, custom_objects={'Attention': SafeAttention, 'extract_6mers': extract_6mers})
 
     # Assert model is not None to resolve Pyright's attribute inference warning
     if loaded_model is None:

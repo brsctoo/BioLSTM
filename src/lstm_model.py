@@ -43,6 +43,28 @@ def residual_block(x, filters, kernel_size):
 
     return Add()([shortcut, fx])
 
+def extract_6mers(x_tensor):
+    import tensorflow as tf
+    # Transforma o One-Hot (batch, W, 4) em Índices (batch, W)
+    indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32)
+
+    # Pad para manter o tamanho exato de WINDOWS_SIZE.
+    # Para ler 6 letras, colocamos 2 de margem na esquerda e 3 na direita.
+    paddings = tf.constant([[0, 0], [2, 3]])
+    padded = tf.pad(indices, paddings, mode='CONSTANT', constant_values=0)
+
+    # Extrai os 6 nucleotídeos da janela
+    pos1 = padded[:, :-5]
+    pos2 = padded[:, 1:-4]
+    pos3 = padded[:, 2:-3]
+    pos4 = padded[:, 3:-2]
+    pos5 = padded[:, 4:-1]
+    pos6 = padded[:, 5:]
+
+    # Calcula o ID do Hexâmero (4^6 = 4096 possíveis hexâmeros)
+    kmer_id = pos1 * 1024 + pos2 * 256 + pos3 * 64 + pos4 * 16 + pos5 * 4 + pos6
+    return kmer_id
+
 def create_model():
     """
     Constrói a rede híbrida Seq2Seq: CNN (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
@@ -50,9 +72,14 @@ def create_model():
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
-    # --- 1. Frontend (Desativado: Sem CNN) ---
-    # Alimentamos o One-Hot DNA diretamente para a Bi-LSTM
-    x = Dropout(0.1)(inp_dna) # Um dropout leve na entrada para regularização
+    # --- 1. Frontend de Tokenização NLP (Hexamers) ---
+    # Lambda Layer converte o DNA One-Hot para IDs de Hexâmeros na GPU
+    from tensorflow.keras.layers import Lambda, Embedding # type: ignore
+    kmers = Lambda(extract_6mers)(inp_dna)
+
+    # Embedding Layer (Word2Vec do DNA) - Dicionário de 4096 palavras
+    x = Embedding(input_dim=4096, output_dim=64, name="hexamer_embedding")(kmers)
+    x = Dropout(0.2)(x)
 
     # --- 2. Deep Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
     # Primeira camada: atua como extratora de motivos locais (substituindo a CNN)
