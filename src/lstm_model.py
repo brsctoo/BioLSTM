@@ -76,10 +76,7 @@ def create_model():
     # --- 4. Fusão Híbrida (Late Fusion adaptado para Seq2Seq) ---
     # Precisamos "esticar" a feature única do RF (tamanho 1) para todos os timesteps (tamanho WINDOWS_SIZE)
     from tensorflow.keras.layers import RepeatVector
-    
-    # Anti-Preguiça: Força a LSTM a ler o DNA ignorando o RF em 30% das vezes!
-    inp_rf_dropped = Dropout(0.3, name='rf_dropout')(inp_rf)
-    rf_repeated = RepeatVector(WINDOWS_SIZE)(inp_rf_dropped)
+    rf_repeated = RepeatVector(WINDOWS_SIZE)(inp_rf)
 
     # Junta a inteligência temporal (LSTM Seq2Seq) com o palpite estatístico (RF repetido no tempo)
     merged = Concatenate(axis=-1)([x, rf_repeated])
