@@ -50,14 +50,9 @@ def create_model():
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
-    # --- 1. Frontend de CNN (Contexto Local) ---
-    x = Conv1D(filters=64, kernel_size=5, padding='same', activation='relu')(inp_dna)
-    x = BatchNormalization()(x)
-
-    x = residual_block(x, filters=64, kernel_size=5)
-    x = residual_block(x, filters=128, kernel_size=5)
-
-    x = Dropout(0.3)(x)
+    # --- 1. Frontend (Desativado: Sem CNN) ---
+    # Alimentamos o One-Hot DNA diretamente para a Bi-LSTM
+    x = Dropout(0.1)(inp_dna) # Um dropout leve na entrada para regularização
 
     # --- 2. Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
     lstm_out = Bidirectional(LSTM(64, return_sequences=True, dropout=0.3))(x)
