@@ -61,7 +61,7 @@ def fp_boundary_distances(sample, Y, y_pred, mask):
         return []
     return np.min(np.abs(fp_idx[:, None] - boundaries[None, :]), axis=1).tolist()
 
-def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=None):
+def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=None, rf_scale=1.0):
     """
     Validates the Bi-LSTM model on the test dataset.
 
@@ -98,10 +98,10 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
 
     final_metrics = []
     raw_test_data = pickle.load(open(data_test, "rb"))
-    
+
     if max_samples is not None:
         raw_test_data = raw_test_data[:max_samples]
-        
+
     data_test = raw_test_data
 
     print("-" * 50)
@@ -135,8 +135,9 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         X_dna = X
         if rf is not None:
             # Injects RF probabilities and splits the 5th channel
-            X_aug = rf_module.inject_rf_proba(rf, X)  # (N, W, 5)
-            X_rf = X_aug[:, 0, 4:] # (N, 1)
+            X_aug = rf_module.inject_rf_proba(rf, X, rf_scale=rf_scale)  # (N, W, 5)
+            mid = X_aug.shape[1] // 2
+            X_rf = X_aug[:, mid, 4:] # (N, 1)
         else:
             X_rf = np.zeros((X.shape[0], 1))
 
@@ -162,9 +163,15 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         predictions = predictions[:, mid, :]
 
         THRESHOLD = threshold
-        SMOOTH_WINDOW = 20
+        SMOOTH_WINDOW = 5
 
         prob = np.asarray(predictions).flatten()
+
+        # Debug RF vs LSTM probabilities
+        if count <= 5:
+            print(f"  [DEBUG] Avg RF proba  : {np.mean(X_rf):.4f}")
+            print(f"  [DEBUG] Avg LSTM proba: {np.mean(prob):.4f}")
+
         predict_raw = (prob > THRESHOLD).astype("int32")
         predict_smoothed = np.array(smooth_predict(predict_raw, window_size=SMOOTH_WINDOW))
 
@@ -180,11 +187,11 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         # 4. Needleman-Wunsch
         # Final sequence of predicted exons and introns
         final_seq = [sample["sequence"][i] for i in range(len(predict_smoothed))
-                     if mask[i] and predict_smoothed[i] == 1]
+            if mask[i] and predict_smoothed[i] == 1]
 
         # Sequence of true exons and introns
         true_final_seq = [sample["sequence"][i] for i in range(len(Y))
-                          if mask[i] and Y[i] == 1]
+            if mask[i] and Y[i] == 1]
 
         if len(final_seq) != 0 and len(true_final_seq) != 0:
             alignment = needle.NeedlemanWunsch(final_seq, true_final_seq)
@@ -266,7 +273,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
     print("═" * 50)
     print("POSITIONAL METRIC (splice site boundaries)")
     print("═" * 50)
-    
+
     d = np.array(all_fp_distances)
     if len(d):
         print(f"FP a <=10bp de uma borda   : {np.mean(d <= 10)*100:.1f}%")

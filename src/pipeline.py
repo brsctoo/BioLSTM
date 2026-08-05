@@ -311,6 +311,11 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
 
 def validate_pipeline(name, threshold=0.50, max_samples=None):
     import validation
+    import re
+    
+    m = re.search(r"_rf([0-9.]+)", name)
+    rf_scale = float(m.group(1)) if m else 1.0
+    
     _, mod1, _, result, rf_result = get_output_paths(name)
 
     log_stage("VALIDATION — Loading model and test data")
@@ -318,11 +323,16 @@ def validate_pipeline(name, threshold=0.50, max_samples=None):
     print("RF model :", rf_result)
     print("Test data:", mod1 + "_test.mod1")
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold, max_samples=max_samples)
+    validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold, max_samples=max_samples, rf_scale=rf_scale)
     log_stage("VALIDATION — DONE.")
 
 def validate_specific_dataset(name, dataset_name, threshold=0.50, max_samples=None):
     import validation
+    import re
+    
+    m = re.search(r"_rf([0-9.]+)", name)
+    rf_scale = float(m.group(1)) if m else 1.0
+    
     _, _, _, result, rf_result = get_output_paths(name)
     
     if not dataset_name:
@@ -340,7 +350,7 @@ def validate_specific_dataset(name, dataset_name, threshold=0.50, max_samples=No
     print("Model    :", result)
     print("Test data:", specific_dataset)
     trained_rf = rf_model.load_rf(rf_result)
-    validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold, max_samples=max_samples)
+    validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold, max_samples=max_samples, rf_scale=rf_scale)
     log_stage("VALIDATION — DONE.")
 
 def main():
