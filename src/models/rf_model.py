@@ -388,7 +388,7 @@ def rf_proba(
     """
     P(Exon) per window, for data NOT seen by the RF (validation/test).
     """
-    k, _ = get_feature_config(rf)
+    k, use_features = get_feature_config(rf)
     X_tab = build_feature_matrix(one_hot, k=k, use_features=use_features)
 
     expected = getattr(rf, "n_features_in_", X_tab.shape[1])
