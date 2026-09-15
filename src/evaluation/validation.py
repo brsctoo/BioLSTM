@@ -5,6 +5,7 @@ import keras
 import numpy as np
 import tensorflow as tf
 from minineedle import needle  # type: ignore
+from data.genbank_reader import GeneSample
 from numpy.typing import NDArray
 from sklearn.ensemble import RandomForestClassifier
 
@@ -61,7 +62,7 @@ def print_positional_prediction_ratio(
     print("----------------------------------------")
 
 def fp_boundary_distances(
-    sample: dict[str, object],
+    sample: GeneSample,
     Y: NDArray,
     y_pred: NDArray,
     mask: NDArray
@@ -69,7 +70,7 @@ def fp_boundary_distances(
     """
     Para cada falso positivo (Y=0, pred=1), distância até a borda éxon/íntron mais próxima.
     """
-    boundaries = np.array([b for s, e in sample["exon_intervals"] for b in (s, e)]) # type: ignore
+    boundaries = np.array([b for s, e in sample["exon_intervals"] for b in (s, e)])
     fp_idx = np.where((Y == 0) & (np.asarray(y_pred) == 1) & mask)[0]
     if len(fp_idx) == 0 or len(boundaries) == 0:
         return []

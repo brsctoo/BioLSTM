@@ -232,7 +232,7 @@ def evaluate_rf(
     """
     Evaluates the model on the validation set.
     """
-    y_proba = model.predict_proba(X_val)[:, 1]
+    y_proba = model.predict_proba(X_val)[:, 1] # type: ignore[arg-type]
 
     # Threshold tuning
     thresholds = np.linspace(0.1, 0.9, 81)
@@ -240,18 +240,18 @@ def evaluate_rf(
     best_f1 = 0.0
     for t in thresholds:
         pred_t = (y_proba >= t).astype(int)
-        f1_t = f1_score(y_val, pred_t, average="macro", zero_division=0)
+        f1_t = f1_score(y_val, pred_t, average="macro", zero_division=0) # type: ignore[arg-type]
         if f1_t > best_f1:
             best_f1 = f1_t
             best_thresh = t
 
-    model.best_threshold_ = best_thresh
+    model.best_threshold_ = best_thresh # type: ignore[arg-type]
     y_pred = (y_proba >= best_thresh).astype(int)
 
     acc       = accuracy_score(y_val, y_pred)
-    f1_exon   = f1_score(y_val, y_pred, pos_label=1, zero_division=0)
-    f1_intron = f1_score(y_val, y_pred, pos_label=0, zero_division=0)
-    f1_macro  = f1_score(y_val, y_pred, average="macro", zero_division=0)
+    f1_exon   = f1_score(y_val, y_pred, pos_label=1, zero_division=0) # type: ignore[arg-type]
+    f1_intron = f1_score(y_val, y_pred, pos_label=0, zero_division=0) # type: ignore[arg-type]
+    f1_macro  = f1_score(y_val, y_pred, average="macro", zero_division=0) # type: ignore[arg-type]
     cm        = confusion_matrix(y_val, y_pred)
     report    = classification_report(
         y_val, y_pred,
@@ -263,10 +263,10 @@ def evaluate_rf(
     majority = round(float(np.mean(y_val)))
     triv = np.full_like(y_val, majority)
     triv_acc = accuracy_score(y_val, triv)
-    triv_f1m = f1_score(y_val, triv, average="macro", zero_division=0)
+    triv_f1m = f1_score(y_val, triv, average="macro", zero_division=0) # type: ignore[arg-type]
 
     if verbose:
-        _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report,
+        _print_rf_results(acc, f1_exon, f1_intron, f1_macro, cm, report, # type: ignore[arg-type]
                           triv_acc, triv_f1m, majority, best_thresh)
 
     return {
@@ -412,7 +412,7 @@ def apply_rf_dropout(
     Randomly zeros the RF signal, bringing it to the neutral value, so the
     """
     rng = rng or np.random
-    keep = rng.binomial(1, 1.0 - dropout_rate, size=p_exon.shape)
+    keep = rng.binomial(1, 1.0 - dropout_rate, size=p_exon.shape) # type: ignore[arg-type]
     return np.where(keep == 1, p_exon, neutral).astype(np.float32)
 
 
@@ -572,8 +572,8 @@ def run_rf_pipeline(
     print(f"  train : {X_train_ohe.shape} | % exon: {round(100 * y_train.mean(), 1)}%")
     print(f"  val   : {X_val_ohe.shape} | % exon: {round(100 * y_val.mean(), 1)}%")
     print(f"  RF OOB score: {round(rf.oob_score_, 4)}")
-    print(f"  Optim. Threshold : {round(metrics.get('best_threshold', 0.5), 3)}")
-    print(f"  F1_macro       : {round(metrics['f1_macro'], 4)}")
+    print(f"  Optim. Threshold : {round(metrics.get('best_threshold', 0.5), 3)}") # type: ignore[arg-type]
+    print(f"  F1_macro       : {round(metrics['f1_macro'], 4)}") # type: ignore[arg-type]
     print("=" * 60 + "\n")
 
     return metrics, rf

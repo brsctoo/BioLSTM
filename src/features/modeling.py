@@ -2,7 +2,9 @@
 import pickle
 
 import numpy as np
-from numpy._typing import NDArray
+from numpy.typing import NDArray
+
+from data.genbank_reader import GeneSample
 
 # Central window size
 WINDOW_SIZE = 400
@@ -41,7 +43,7 @@ degenerate_bases_count = 0
 total_bases_count = 0
 
 def tag_positions(
-    sample: dict[str, object]
+    sample: GeneSample
 ) -> list[int]:
     """
     Tag each position in the sequence as exon (1) or intron (0).
@@ -49,12 +51,12 @@ def tag_positions(
 
     tag = [-1] * len(sample["sequence"])  # Initialize all positions as -1 # type: ignore
 
-    for start, end in sample["intron_intervals"]: # type: ignore
+    for start, end in sample["intron_intervals"]:
         for i in range(start, end + 1):
             if 0 <= i < len(tag):
                 tag[i] = 0  # Real intron
 
-    for start, end in sample["exon_intervals"]: # type: ignore
+    for start, end in sample["exon_intervals"]:
         for i in range(start, end + 1):
             if 0 <= i < len(tag):
                 tag[i] = 1  # Mark exon positions as 1
@@ -62,7 +64,7 @@ def tag_positions(
     return tag
 
 def slide_window(
-    sample: dict[str, object],
+    sample: GeneSample,
     window_size: int | None = None
 ) -> list[list[int]]:
     """
@@ -72,8 +74,7 @@ def slide_window(
          window_size = WINDOW_SIZE
 
     half = window_size // 2
-    seq = transform_baseSeq_to_onehot(sample["sequence"]) # type: ignore
-
+    seq = transform_baseSeq_to_onehot(sample["sequence"])
     windows = []
 
     for k in range(len(seq)):
@@ -156,7 +157,7 @@ def extract_windows_numpy(
 
 def extract_windows_labels_numpy(
     tagged_arr: np.ndarray,
-    indices: list[int],
+    indices: np.ndarray,
     window_size: int | None = None
 ) -> np.ndarray:
     """
@@ -194,7 +195,7 @@ def extract_windows_labels_numpy(
     return Y_win
 
 def build_XY_from_gene_list(
-    gene_list: list[dict[str, object]],
+    gene_list: list[GeneSample],
     window_size: int | None = None,
     stride: int = 70
 ) -> tuple[np.ndarray, np.ndarray]:

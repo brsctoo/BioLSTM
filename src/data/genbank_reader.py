@@ -1,5 +1,6 @@
 import pickle  # Used for file operations
 import random
+from typing import TypedDict
 
 from Bio import SeqIO
 from Bio.SeqRecord import SeqRecord
@@ -12,6 +13,14 @@ from data.noise_injector import (
     inject_degenerate_nucleotides_uniform,
 )
 
+
+class GeneSample(TypedDict):
+    sequence: str
+    exon_intervals: list[list[int]]
+    exons: list[str]
+    intron_intervals: list[list[int]]
+    introns: list[str]
+
 # Maps the injection mode flag to the corresponding injector function.
 INJECTION_MODE_MAP = {
     "conditioned": inject_degenerate_nucleotides,
@@ -22,7 +31,6 @@ INJECTION_MODE_MAP = {
 DEFAULT_INJECTION_MODE = "conditioned"
 
 MAX_SEQUENCE_LENGTH = 20000
-
 
 def validate_register(
     record: SeqRecord
@@ -157,7 +165,7 @@ def apply_injection(
     injection_rate: float,
     injection_mode: str = DEFAULT_INJECTION_MODE,
     **injector_kwargs: float | str
-) -> list[dict[str, object]]:
+) -> list[GeneSample]:
     """
     STEP 3 — Inject degenerate nucleotides on the already-deduplicated set.
     """
@@ -169,7 +177,7 @@ def apply_injection(
             f"Valid options: {list(INJECTION_MODE_MAP.keys())}"
         )
 
-    data = []
+    data: list[GeneSample] = []
 
     for item in unique:
         exons_intervals = item["exon_intervals"]
@@ -199,7 +207,7 @@ def preprocess_genbank_file(
     INJECTION_RATE: float,
     injection_mode: str = DEFAULT_INJECTION_MODE,
     **injector_kwargs: float | str
-) -> list[dict[str, object]]:
+) -> list[GeneSample]:
     """
     Read the GenBank file and preprocess the sequences.
     """
@@ -216,9 +224,9 @@ def preprocess_genbank_file(
 
 
 def separate_train_test(
-    data: list[dict[str, object]],
+    data: list[GeneSample],
     test_size: float = 0.2
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+) -> tuple[list[GeneSample], list[GeneSample]]:
     """
     Separate the data into training and testing sets.
     """
@@ -234,7 +242,7 @@ def separate_train_test(
 
 def save_dataset_to_file(
     genbank_filepath_output: str,
-    data: list[dict[str, object]]
+    data: list[GeneSample]
 ) -> None:
     """
     Save the processed data to a file.

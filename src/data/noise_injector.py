@@ -58,6 +58,11 @@ def _local_gc_content(
     i: int,
     window: int = 10
 ) -> float:
+    """
+    Calculates the local GC content within a specific window (`± window`) around
+    a given position `i`.
+    """
+
     start = max(0, i - window)
     end = min(len(seq), i + window + 1)
     local = seq[start:end]
