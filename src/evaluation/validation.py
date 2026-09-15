@@ -83,7 +83,7 @@ def validate_model(
     threshold: float = 0.50,
     max_samples: int | None = None,
     rf_scale: float = 1.0
-) -> None:
+) -> tuple[NDArray, NDArray, list[int]]:
     """
     Validates the Bi-LSTM model on the test dataset.
     """
@@ -314,3 +314,5 @@ def validate_model(
     # Calculate F1 Score
     f1 = 2 * tp / (2 * tp + fp + fn)
     print(f"  {'F1':10s}: {f1*100:.2f}%")
+
+    return y_true_t, y_prob_t, all_fp_distances

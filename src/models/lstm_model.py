@@ -42,7 +42,7 @@ def extract_6mers(
 ) -> object:
     import tensorflow as tf
     # Transforma o One-Hot (batch, W, 4) em Índices (batch, W)
-    indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32)
+    indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32) # type: ignore
 
     # Pad para manter o tamanho exato de WINDOWS_SIZE.
     # Para ler 6 letras, colocamos 2 de margem na esquerda e 3 na direita.

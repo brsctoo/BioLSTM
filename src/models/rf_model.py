@@ -209,7 +209,7 @@ def get_feature_config(
     default_features = {"kmer": True, "orf": True, "fourier": True}
     if getattr(rf, "feature_schema_version", None) == FEATURE_SCHEMA_VERSION:
         use_features = getattr(rf, "use_features", default_features)
-        return rf.feature_k, use_features
+        return rf.feature_k, use_features # type: ignore
 
     n = getattr(rf, "n_features_in_", 17)
     k = 3 if n >= 65 else 2
@@ -256,7 +256,7 @@ def evaluate_rf(
     report    = classification_report(
         y_val, y_pred,
         target_names=["Intron (0)", "Exon (1)"],
-        zero_division=0,
+        zero_division=0, # type: ignore
     )
 
     # trivial baseline: always predict the majority class
@@ -333,7 +333,7 @@ def evaluate_rf_microscope(
               "the pure/mixed window analysis.")
         return
 
-    y_proba = model.predict_proba(X_val)[:, 1]
+    y_proba = model.predict_proba(X_val)[:, 1] # type: ignore
     best_thresh = getattr(model, "best_threshold_", 0.5)
     y_pred = (y_proba >= best_thresh).astype(int)
 
@@ -608,9 +608,9 @@ if __name__ == "__main__":
     }
     metrics, rf = run_rf_pipeline(args.train, args.val,
                                   k=args.k, use_features=use_features)
-    print(f"\n  Accuracy Final : {metrics['accuracy'] * 100:.2f}%")
-    print(f"  Final Macro F1 : {metrics['f1_macro'] * 100:.2f}%")
-    print(f"  (trivial baseline: {metrics['trivial_f1_macro'] * 100:.2f}% F1 macro)")
+    print(f"\n  Accuracy Final : {metrics['accuracy'] * 100:.2f}%") # type: ignore
+    print(f"  Final Macro F1 : {metrics['f1_macro'] * 100:.2f}%") # type: ignore
+    print(f"  (trivial baseline: {metrics['trivial_f1_macro'] * 100:.2f}% F1 macro)") # type: ignore
 
     print("\n  Testing the inference path with synthetic data...")
     W = 120
