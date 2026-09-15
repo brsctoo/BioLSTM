@@ -1,100 +1,14 @@
-"""
-Bi-LSTM Pipeline for Intron/Exon Identification.
 
-Orchestrates the full workflow: GenBank search, GenBank pre-processing
-(cropping, strand correction, deduplication, degenerate-base injection),
-feature extraction (sliding window + one-hot encoding), model training,
-and validation.
-
-============================================================
-USAGE
-============================================================
-
-    python pipeline.py [mode] [--injection-rate R] [--injection-mode M]
-                        [--alpha A] [--illumina-mode IM] [--name N] [--seed S]
-
-    If [mode] is omitted, an interactive menu is shown.
-
-============================================================
-POSITIONAL ARGUMENTS
-============================================================
-
-    mode    Operation mode (optional — interactive menu if omitted):
-              search_data                Query NCBI and save a .gb file.
-              train                      Pre-process the GenBank file and train the model.
-              test                       Validate an already-trained model on the test split.
-              full                       Run train followed by test in a single call.
-              create_train_test_files    Only run pre-processing + featurization (no training).
-              validate_specific_dataset  Validate the named model against an arbitrary .mod1 file.
-
-============================================================
-OPTIONAL FLAGS
-============================================================
-
-    --injection-rate  R   (float, default: 0.0)
-        Scaling factor applied on top of the chosen injection strategy.
-        0.0 = no degenerate bases injected.
-        1.0 = full rate as defined by the selected mode.
-        Note: 100% injection does not mean 100% of bases are replaced —
-        see EFFECTIVE_SCALE in noise_injector.py.
-
-    --injection-mode  M   (str, default: conditioned)
-        Selects the injection strategy used during pre-processing:
-          conditioned   Annotation-based injection. Introns get the highest
-                        substitution probability, exon 3rd codon position gets
-                        medium probability, and 1st/2nd positions get low
-                        probability. Splice sites and start codons are protected
-                        (rate = 0). This is the main experimental arm — it
-                        deliberately correlates with the intron/exon label.
-          uniform       Control arm. Every canonical base has the same
-                        constant substitution probability, regardless of its
-                        position in the gene structure. Degenerate bases carry
-                        no information about intron/exon class. This is the
-                        arm that isolates label leakage in 'conditioned'.
-          illumina      Illumina error-profile arm. Substitution probability is
-                        driven by local GC content and homopolymer run length,
-                        mimicking systematic sequencing errors. Not rate-matched
-                        against the other arms — use it as a robustness check,
-                        not as the causal control.
-          mixed         Weighted combination of 'conditioned' and 'illumina',
-                        controlled by --alpha. Diluting the leakage does not
-                        remove it.
-
-    --alpha  A            (float, default: 0.3)
-        Weight of the conditioned channel in 'mixed' mode, in [0, 1].
-        0.0 = pure Illumina (no label leakage), 1.0 = pure conditioned
-        (full leakage). Ignored for all other modes.
-
-    --illumina-mode  IM    (str, default: realistic)
-        Illumina calibration sub-mode, used by 'illumina' and 'mixed':
-          realistic   Literature-calibrated rates (peak ~2%).
-          stress      Same curve shape, scaled 0-100%, for robustness/
-                      leakage diagnostics.
-
-    --name  N             (str, default: actin_fungi)
-        Experiment label. Used both to locate the input .gb file
-        (../assets/genbank_data/{N}.gb) and to name all output files.
-        Use this to run multiple experiments without overwriting results.
-
-    --seed  S             (int, default: 123865)
-        Global random seed (Python random, NumPy, TensorFlow). Makes
-        injection noise, dataset balancing, and weight initialization
-        reproducible. NOTE: the train/test split itself always uses a
-        fixed seed (123865) inside genbank_reader.separate_train_test,
-        independent of --seed, so different experiments stay comparable
-        on the same held-out set.
-"""
-
-import os
-import gc
 import argparse
+import gc
+import os
 from datetime import datetime
 
 import numpy as np
-import genbank_searcher
-import genbank_reader
-import modeling
-import rf_model
+
+from data import genbank_reader, genbank_searcher
+from features import modeling
+from models import rf_model
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -103,10 +17,8 @@ MAX_RECORDS = 6000
 BATCH_SIZE = 50
 MAX_PER_SPECIES = 200  # Aumentado de 50 para 200 para agilizar o download
 MAX_GENERAL = 500000    # Tamanho do "pool" aleatório que vamos baixar os IDs
-MAX_HOUSEKEEPING = 0   # Ignorado na nova abordagem
 
 QUERY_GENERAL = '"exon"[Feature key] AND "intron"[Feature key] AND "CDS"[Feature key] AND biomol_genomic[PROP]'
-QUERY_HOUSEKEEPING = '' # Não será mais utilizado
 # -------------------------------------------------
 
 DEFAULT_INJECTION_RATE = 0.0
@@ -121,7 +33,9 @@ GB_FILE_NAME = "all_proteins"
 OUTPUT_FILE = os.path.join(BASE_DIR, f"../assets/genbank_data/{GB_FILE_NAME}.gb")
 
 
-def get_output_paths(name):
+def get_output_paths(
+    name: str
+) -> tuple[str, str, str, str, str]:
     genbank_input = os.path.join(BASE_DIR, f"../assets/genbank_data/{name}")
     mod1 = os.path.join(BASE_DIR, f"../assets/processed_data/mod1/data_{name}")
     mod2 = os.path.join(BASE_DIR, f"../assets/processed_data/mod2/data_XY_{name}.npz")
@@ -130,23 +44,22 @@ def get_output_paths(name):
     return genbank_input, mod1, mod2, result, rf_result
 
 
-def log_stage(msg):
+def log_stage(
+    msg: str
+) -> None:
     print(f"\n{'='*60}")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")  # noqa: DTZ005
     print(f"{'='*60}\n")
 
 
-def set_global_seed(seed):
+def set_global_seed(
+    seed: int
+) -> None:
     """
     Seed Python's random, NumPy, and TensorFlow so a run is reproducible
-    end-to-end: injection noise, dataset balancing, and weight initialization
-    all draw from the same seed.
-
-    The train/test split (genbank_reader.separate_train_test) is deliberately
-    NOT covered here — it hardcodes its own fixed seed so different experiments
-    in a sweep stay comparable on the same held-out set regardless of --seed.
     """
     import random
+
     import numpy as np
 
     random.seed(seed)
@@ -160,8 +73,14 @@ def set_global_seed(seed):
     os.environ["PYTHONHASHSEED"] = str(seed)
 
 
-def build_injector_kwargs(injection_mode, alpha, illumina_mode):
-    """Strategy-specific extra parameters, forwarded to noise_injector.py."""
+def build_injector_kwargs(
+    injection_mode: str,
+    alpha: float,
+    illumina_mode: str
+) -> dict[str, float | str]:
+    """
+    Strategy-specific extra parameters, forwarded to noise_injector.py.
+    """
     injector_kwargs = {}
     if injection_mode == "illumina":
         injector_kwargs["mode"] = illumina_mode
@@ -170,42 +89,38 @@ def build_injector_kwargs(injection_mode, alpha, illumina_mode):
         injector_kwargs["illumina_mode"] = illumina_mode
     return injector_kwargs
 
-
-def save_run_metadata(name, injection_rate, injection_mode, ratio_degenerate, injector_kwargs):
-    """Persist the effective degeneration rate and run hyperparameters."""
-    lines = [
-        f"RATIO_DEGENERATE_NUCLEOTIDES = {ratio_degenerate}",
-        f"injection_mode = {injection_mode}",
-        f"injection_rate = {injection_rate}",
-    ]
-    for key, value in injector_kwargs.items():
-        lines.append(f"{key} = {value}")
-
-    txt_filepath = os.path.join(BASE_DIR, f"../assets/RATIO_{name}.txt")
-    with open(txt_filepath, "w") as f:
-        f.write("\n".join(lines) + "\n")
-    print(f"Run metadata saved to: {txt_filepath}")
-
-def search_data_pipeline(name):
+def search_data_pipeline(
+    name: str
+) -> None:
     query_to_print = QUERY_GENERAL.replace(' AND ', '\nAND ')
-    query_housekeeping_to_print = QUERY_HOUSEKEEPING.replace(' AND ', '\nAND ')
-    
+
     # Usa o get_output_paths para salvar o arquivo com o nome personalizado
     genbank_input, _, _, _, _ = get_output_paths(name)
-    
+
     log_stage("SEARCH — Querying GenBank")
     print(f"GENERAL QUERY: \n {query_to_print}")
-    print(f"HOUSEKEEPING QUERY: \n {query_housekeeping_to_print}")
     print(f"Salving gigadataset to: {genbank_input}")
-    
+
     # Criar diretório se não existir
     os.makedirs(os.path.dirname(genbank_input), exist_ok=True)
-    
-    genbank_searcher.main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE,
-                           MAX_PER_SPECIES, MAX_GENERAL, MAX_HOUSEKEEPING, genbank_input)
+
+    genbank_searcher.main(
+        QUERY_GENERAL,
+        MAX_RECORDS,
+        BATCH_SIZE,
+        MAX_PER_SPECIES,
+        MAX_GENERAL,
+        genbank_input
+    )
     log_stage("SEARCH — DONE.")
 
-def create_train_test_files(injection_rate, injection_mode, name, window_size=DEFAULT_WINDOW_SIZE, **injector_kwargs):
+def create_train_test_files(
+    injection_rate: float,
+    injection_mode: str,
+    name: str,
+    window_size: int = DEFAULT_WINDOW_SIZE,
+    **injector_kwargs: float | str
+) -> tuple[str, str]:
     genbank_input, mod1, mod2, _, _ = get_output_paths(name)
 
     # Derive separate paths for the two gene-level splits
@@ -240,7 +155,17 @@ def create_train_test_files(injection_rate, injection_mode, name, window_size=DE
     return mod2_train, mod2_val
 
 
-def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, window_size=DEFAULT_WINDOW_SIZE, rf_scale=DEFAULT_RF_SCALE, recreate_data=True, use_features=None, **injector_kwargs):
+def train_pipeline(
+    injection_rate: float,
+    injection_mode: str,
+    name: str,
+    epochs: int = DEFAULT_EPOCHS,
+    window_size: int = DEFAULT_WINDOW_SIZE,
+    rf_scale: float = DEFAULT_RF_SCALE,
+    recreate_data: bool = True,
+    use_features: dict[str, bool] | None = None,
+    **injector_kwargs: float | str
+) -> None:
     _, _, mod2, result, rf_result = get_output_paths(name)
     mod2_train = mod2.replace(".npz", "_train.npz")
     mod2_val   = mod2.replace(".npz", "_val.npz")
@@ -259,7 +184,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
         f"F1 Éxon: {rf_metrics['f1_exon']*100:.2f}%"
     )
     gc.collect()
-    
+
     # ETAPA 2: Injeção de Probabilidade RF (Early Fusion)
     log_stage(f"AUGMENTAÇÃO — Injetando P(Éxon) do RF como 5º canal (One-Hot → 5D, W={window_size})")
 
@@ -300,7 +225,7 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     print("Input train (aug):", mod2_train_aug)
     print("Input val   (aug):", mod2_val_aug)
     log_stage("TRAINING — Iniciando treinamento no Keras (Bi-LSTM)")
-    import train_model
+    from training import train_model
     train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
@@ -309,13 +234,18 @@ def train_pipeline(injection_rate, injection_mode, name, epochs=DEFAULT_EPOCHS, 
     rf_model.save_rf(trained_rf, rf_result)
 
 
-def validate_pipeline(name, threshold=0.50, max_samples=None):
-    import validation
+def validate_pipeline(
+    name: str,
+    threshold: float = 0.50,
+    max_samples: int | None = None
+) -> None:
     import re
-    
+
+    from evaluation import validation
+
     m = re.search(r"_rf([0-9.]+)", name)
     rf_scale = float(m.group(1)) if m else 1.0
-    
+
     _, mod1, _, result, rf_result = get_output_paths(name)
 
     log_stage("VALIDATION — Loading model and test data")
@@ -326,21 +256,27 @@ def validate_pipeline(name, threshold=0.50, max_samples=None):
     validation.validate_model(result, mod1 + "_test.mod1", trained_rf, threshold=threshold, max_samples=max_samples, rf_scale=rf_scale)
     log_stage("VALIDATION — DONE.")
 
-def validate_specific_dataset(name, dataset_name, threshold=0.50, max_samples=None):
-    import validation
+def validate_specific_dataset(
+    name: str,
+    dataset_name: str,
+    threshold: float = 0.50,
+    max_samples: int | None = None
+) -> None:
     import re
-    
+
+    from evaluation import validation
+
     m = re.search(r"_rf([0-9.]+)", name)
     rf_scale = float(m.group(1)) if m else 1.0
-    
+
     _, _, _, result, rf_result = get_output_paths(name)
-    
+
     if not dataset_name:
         dataset_name = input("Enter the name of the dataset: ")
-        
+
     if not dataset_name.endswith(".mod1"):
         dataset_name += ".mod1"
-        
+
     if os.path.isabs(dataset_name) or os.path.exists(dataset_name):
         specific_dataset = dataset_name
     else:
@@ -353,7 +289,7 @@ def validate_specific_dataset(name, dataset_name, threshold=0.50, max_samples=No
     validation.validate_model(result, specific_dataset, trained_rf, threshold=threshold, max_samples=max_samples, rf_scale=rf_scale)
     log_stage("VALIDATION — DONE.")
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Bi-LSTM Pipeline for Intron/Exon Identification")
 
     # Positional argument: operation mode. Choices cover every action reachable
@@ -414,13 +350,13 @@ def main():
     parser.add_argument("--skip-data-generation", action="store_true",
         help="Se ativada, o pipeline NÃO vai recriar os arquivos mod1/mod2 se usar 'train' ou 'full', "
              "aproveitando os arquivos que já existem (Default: Recria os arquivos sempre).")
-             
+
     parser.add_argument("--test-dataset", type=str, default="",
         help="Caminho ou nome do arquivo .mod1 especifico para usar com o modo 'validate_specific_dataset'. Se nao fornecido, pedira via input().")
-        
+
     parser.add_argument("--limit-test", type=int, default=None,
         help="Limita o número de amostras testadas na validação para agilizar testes rápidos.")
-             
+
     # RF Features flags
     parser.add_argument("--no-kmer", action="store_true", help="Desabilita a feature de frequências de k-mers no Random Forest")
     parser.add_argument("--no-orf", action="store_true", help="Desabilita a feature de tamanho máximo de ORF no Random Forest")
@@ -451,7 +387,7 @@ def main():
     # Propaga window_size para todos os módulos que usam janelas
     modeling.set_window_size(window_size)
     if args.mode in ["train", "full"]:
-        import lstm_model
+        from models import lstm_model
         lstm_model.set_window_size(window_size)
 
     # If no mode was provided, show interactive menu

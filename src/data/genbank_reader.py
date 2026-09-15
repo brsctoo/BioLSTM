@@ -1,29 +1,15 @@
-"""
-This module reads a GenBank file, extracts the relevant sequences and features, and preprocesses the data by
-injecting degenerate nucleotides according to specific rules. The processed data is then separated into training
-and testing datasets and saved to files for later use in machine learning models.
-
-Pre-processing is split into three explicit steps so that deduplication happens
-on the ORIGINAL sequence, before any noise is injected:
-
-    STEP 1 — read records, crop to the gene span, fix reverse strand, build intervals
-    STEP 2 — deduplicate on the original (clean) cropped sequence
-    STEP 3 — inject degenerate nucleotides on the already-clean set
-
-Deduplicating after injection cannot work: the noise is stochastic, so two copies
-of the same gene come out different and both survive.
-"""
+import pickle  # Used for file operations
+import random
 
 from Bio import SeqIO
-import pickle # Used for file operations
-import random
-import region_extractor as re
+from Bio.SeqRecord import SeqRecord
 
-from noise_injector import (
+from data import region_extractor as rx
+from data.noise_injector import (
     inject_degenerate_nucleotides,
     inject_degenerate_nucleotides_illumina,
-    inject_degenerate_nucleotides_uniform,
     inject_degenerate_nucleotides_mixed,
+    inject_degenerate_nucleotides_uniform,
 )
 
 # Maps the injection mode flag to the corresponding injector function.
@@ -38,7 +24,9 @@ DEFAULT_INJECTION_MODE = "conditioned"
 MAX_SEQUENCE_LENGTH = 20000
 
 
-def validate_register(record):
+def validate_register(
+    record: SeqRecord
+) -> bool:
     """
     Checks if the record contains at least one Coding DNA Sequence (CDS) feature.
     """
@@ -50,15 +38,11 @@ def validate_register(record):
             cds_features.append(feature)
     return len(cds_features) > 0
 
-def read_records(genbank_input_filepath):
+def read_records(
+    genbank_input_filepath: str
+) -> list[dict[str, object]]:
     """
     STEP 1 — Read the GenBank file and return the cleaned records
-
-    For each valid record this resolves the target feature (mRNA containing the CDS,
-    falling back to the CDS itself), crops the sequence to the gene span, handles the
-    reverse strand, and rebases the exon coordinates to the cropped sequence.
-
-    returns: list of dicts with keys "sequence", "exon_intervals", "intron_intervals"
     """
 
     raw = []
@@ -70,7 +54,7 @@ def read_records(genbank_input_filepath):
         try:
             # Converts to string AND ensures uppercase to prevent hidden bugs
             full_seq = str(register.seq).upper()
-        except Exception:
+        except Exception:  # noqa: BLE001, S112
             # Occurs if 'register' does not have a '.seq' attribute or throws UndefinedSequenceError
             continue
 
@@ -112,7 +96,7 @@ def read_records(genbank_input_filepath):
         # Crops the size of the gene
         cropped_seq_obj = register.seq[target_start:target_end]
 
-        exons_intervals_raw = re.make_exons_intervals_list(target_feature.location)
+        exons_intervals_raw = rx.make_exons_intervals_list(target_feature.location)
         exons_intervals = [[s - target_start, e - target_start] for s, e in exons_intervals_raw]
 
         # 2. Reverse Strand
@@ -137,7 +121,7 @@ def read_records(genbank_input_filepath):
 
         # 3. Single-Exon
         # Now we create the introns using your function
-        introns_intervals = re.make_introns_intervals_list(exons_intervals)
+        introns_intervals = rx.make_introns_intervals_list(exons_intervals)
 
         raw.append({
             "sequence": seq,
@@ -148,13 +132,11 @@ def read_records(genbank_input_filepath):
     return raw
 
 
-def remove_duplicates(raw):
+def remove_duplicates(
+    raw: list[dict[str, object]]
+) -> list[dict[str, object]]:
     """
     STEP 2 — Remove duplicate records, keyed on the ORIGINAL cropped sequence.
-
-    Run before injection. The injected sequence is not a valid key:
-    the substitutions are drawn at random, so two copies of the same gene would
-    produce two different strings and both would survive.
     """
 
     seen = set()
@@ -170,15 +152,14 @@ def remove_duplicates(raw):
     return unique
 
 
-def apply_injection(unique, injection_rate, injection_mode=DEFAULT_INJECTION_MODE, **injector_kwargs):
+def apply_injection(
+    unique: list[dict[str, object]],
+    injection_rate: float,
+    injection_mode: str = DEFAULT_INJECTION_MODE,
+    **injector_kwargs: float | str
+) -> list[dict[str, object]]:
     """
     STEP 3 — Inject degenerate nucleotides on the already-deduplicated set.
-
-    - injection_mode: which injection strategy to use.
-      Options: "conditioned" (annotation-based), "uniform" (control arm),
-      "illumina" (Illumina error-profile), "mixed" (weighted combination).
-    - injector_kwargs: strategy-specific extra parameters
-      (e.g. alpha and illumina_mode for injection_mode="mixed").
     """
 
     injector = INJECTION_MODE_MAP.get(injection_mode)
@@ -205,17 +186,23 @@ def apply_injection(unique, injection_rate, injection_mode=DEFAULT_INJECTION_MOD
         data.append({
             "sequence": seq,
             "exon_intervals": exons_intervals,
-            "exons": re.make_exons_list(exons_intervals, seq),
+            "exons": rx.make_exons_list(exons_intervals, seq), # type: ignore
             "intron_intervals": introns_intervals,
-            "introns": re.make_introns_list(introns_intervals, seq),
+            "introns": rx.make_introns_list(introns_intervals, seq), # type: ignore
         })
 
     return data
 
 
-def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE,
-                            injection_mode=DEFAULT_INJECTION_MODE, **injector_kwargs):
-    """Read the GenBank file and preprocess the sequences."""
+def preprocess_genbank_file(
+    genbank_input_filepath: str,
+    INJECTION_RATE: float,
+    injection_mode: str = DEFAULT_INJECTION_MODE,
+    **injector_kwargs: float | str
+) -> list[dict[str, object]]:
+    """
+    Read the GenBank file and preprocess the sequences.
+    """
 
     raw = read_records(genbank_input_filepath)
     print(f"Valid records read: {len(raw)}")
@@ -228,8 +215,13 @@ def preprocess_genbank_file(genbank_input_filepath, INJECTION_RATE,
     return data
 
 
-def separate_train_test(data, test_size=0.2):
-    """Separate the data into training and testing sets."""
+def separate_train_test(
+    data: list[dict[str, object]],
+    test_size: float = 0.2
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    """
+    Separate the data into training and testing sets.
+    """
 
     random.seed(123865) # For reproducibility
     random.shuffle(data)
@@ -240,17 +232,28 @@ def separate_train_test(data, test_size=0.2):
     return train_data, test_data
 
 
-def save_dataset_to_file(genbank_filepath_output, data):
-    """Save the processed data to a file."""
+def save_dataset_to_file(
+    genbank_filepath_output: str,
+    data: list[dict[str, object]]
+) -> None:
+    """
+    Save the processed data to a file.
+    """
 
-    file = open(genbank_filepath_output, "wb") # Open
-    pickle.dump(data, file) # Write
-    file.close() # Close
+    with open(genbank_filepath_output, "wb") as file:
+        pickle.dump(data, file)
 
 
-def save_preprocessed_genbank_file(genbank_input_filepath, genbank_filepath_output, INJECTION_RATE,
-                                   injection_mode=DEFAULT_INJECTION_MODE, **injector_kwargs):
-    """Preprocess the genbankfile."""
+def save_preprocessed_genbank_file(
+    genbank_input_filepath: str,
+    genbank_filepath_output: str,
+    INJECTION_RATE: float,
+    injection_mode: str = DEFAULT_INJECTION_MODE,
+    **injector_kwargs: float | str
+) -> None:
+    """
+    Preprocess the genbankfile.
+    """
 
     print("Preprocessing GenBank file...")
     print(f"Injection mode: {injection_mode} | rate: {INJECTION_RATE}")

@@ -9,3 +9,7 @@ venv/
 *.mod1
 *.h5
 *.joblib
+
+# Documentation
+**/documentation/
+venv_wsl/

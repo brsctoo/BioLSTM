@@ -1,11 +1,9 @@
-"""
-Script to fetch a dataset from GenBank with a custom query and preprocess it for testing only.
-Usage: python fetch_test_dataset.py --query "your query here" --output "output_name"
-"""
-import os
 import argparse
+import os
+
 from Bio import Entrez
-import genbank_reader
+
+from data import genbank_reader
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -13,8 +11,15 @@ Entrez.email = "bcominscheffel@email.com"
 
 import random
 
-def fetch_genbank(query, output_filepath, max_records=500):
-    """Fetch records from GenBank with random sampling for diversity."""
+
+def fetch_genbank(
+    query: str,
+    output_filepath: str,
+    max_records: int = 500
+) -> bool:
+    """
+    Fetch records from GenBank with random sampling for diversity.
+    """
 
     print(f"Searching GenBank with the following query:\n{query}\n")
 
@@ -60,8 +65,15 @@ def fetch_genbank(query, output_filepath, max_records=500):
     print(f"File saved to: {gb_path}")
     return True
 
-def fetch_and_preprocess(query, output_name, max_records=500, injection_rate=0.0):
-    """Fetch from GenBank and preprocess for testing."""
+def fetch_and_preprocess(
+    query: str,
+    output_name: str,
+    max_records: int = 500,
+    injection_rate: float = 0.0
+) -> None:
+    """
+    Fetch from GenBank and preprocess for testing.
+    """
 
     output_filepath = os.path.join(BASE_DIR, "../assets/genbank_data", output_name)
     mod1_filepath = os.path.join(BASE_DIR, "../assets/processed_data/mod1", output_name)
@@ -86,7 +98,7 @@ def fetch_and_preprocess(query, output_name, max_records=500, injection_rate=0.0
     print(f"\nTest dataset saved to: {output_path}")
     print("Done! Use validate_pipeline() pointing to this file.")
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch and preprocess GenBank dataset for testing")
     parser.add_argument("--query", required=True, help="GenBank search query")
     parser.add_argument("--output", required=True, help="Output file name (without extension)")

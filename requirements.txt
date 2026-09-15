@@ -1,2 +1,5 @@
 biopython
 minineedle
+tensorflow
+scikit-learn
+numpy

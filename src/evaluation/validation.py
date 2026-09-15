@@ -1,21 +1,23 @@
-"""
-Validation module to assess the trained Bi-LSTM model performance
-on the test dataset using alignment metrics and positional metrics.
-"""
 
-import rf_model as rf_module
-import modeling
-import numpy as np
 import pickle
-import keras
-import tensorflow as tf
-from minineedle import needle # type: ignore
 
-def smooth_predict(predict_raw, window_size=20):
+import keras
+import numpy as np
+import tensorflow as tf
+from minineedle import needle  # type: ignore
+from numpy.typing import NDArray
+from sklearn.ensemble import RandomForestClassifier
+
+from features import modeling
+from models import rf_model as rf_module
+
+
+def smooth_predict(
+    predict_raw: NDArray,
+    window_size: int = 20
+) -> list[int]:
     """
     Biological proofreader: Eliminates biologically impossible short predictions.
-    If the model predicts a single intron surrounded by exons, this function
-    uses a majority vote within the window to "smooth" it out.
     """
     half = window_size // 2
     smoothed = []
@@ -34,10 +36,14 @@ def smooth_predict(predict_raw, window_size=20):
 
     return smoothed
 
-def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_smooth):
+def print_positional_prediction_ratio(
+    sample_index: int,
+    y_true: NDArray,
+    y_pred_raw: NDArray,
+    y_pred_smooth: NDArray
+) -> None:
     """
     Shows the percentage of positions marked as exon (class 1)
-    to compare true label vs raw prediction vs smoothed prediction.
     """
     y_true_arr = np.asarray(y_true).reshape(-1)
     y_pred_raw_arr = np.asarray(y_pred_raw).reshape(-1)
@@ -54,44 +60,47 @@ def print_positional_prediction_ratio(sample_index, y_true, y_pred_raw, y_pred_s
     print(f"  Predicted smooth (==1) : {pred_smooth_exon_pct:.2f}%")
     print("----------------------------------------")
 
-def fp_boundary_distances(sample, Y, y_pred, mask):
-    """Para cada falso positivo (Y=0, pred=1), distância até a borda éxon/íntron mais próxima."""
-    boundaries = np.array([b for s, e in sample["exon_intervals"] for b in (s, e)])
+def fp_boundary_distances(
+    sample: dict[str, object],
+    Y: NDArray,
+    y_pred: NDArray,
+    mask: NDArray
+) -> list[int]:
+    """
+    Para cada falso positivo (Y=0, pred=1), distância até a borda éxon/íntron mais próxima.
+    """
+    boundaries = np.array([b for s, e in sample["exon_intervals"] for b in (s, e)]) # type: ignore
     fp_idx = np.where((Y == 0) & (np.asarray(y_pred) == 1) & mask)[0]
     if len(fp_idx) == 0 or len(boundaries) == 0:
         return []
     return np.min(np.abs(fp_idx[:, None] - boundaries[None, :]), axis=1).tolist()
 
-def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=None, rf_scale=1.0):
+def validate_model(
+    model_path: str,
+    data_test: str,
+    rf: RandomForestClassifier | None = None,
+    threshold: float = 0.50,
+    max_samples: int | None = None,
+    rf_scale: float = 1.0
+) -> None:
     """
     Validates the Bi-LSTM model on the test dataset.
-
-    Parameters
-    ----------
-    model_path : str
-        Path to the trained .h5 model.
-    data_test : str
-        Path to the .mod1 test dataset file.
-    rf : RandomForestClassifier | None
-        If provided, injects P(Exon) as the 5th channel before each prediction,
-        matching the shape the model was trained on (400, 5).
-        If None, assumes older model version with (400, 4) input.
-    max_samples : int | None
-        If provided, limits the number of sequences tested for faster evaluation.
     """
     # 1. Safe loading mechanism for custom layers (e.g., Attention)
     class SafeAttention(keras.layers.Attention):
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs: str | float | bool | object) -> None:
             if 'score_mode' in kwargs and callable(kwargs['score_mode']):
                 kwargs['score_mode'] = 'dot'
-            super().__init__(**kwargs)
+            super().__init__(**kwargs) # type: ignore
 
     try:
-        keras.config.enable_unsafe_deserialization()
+        keras.config.enable_unsafe_deserialization() # type: ignore
     except AttributeError:
         pass
 
-    def extract_6mers(x_tensor):
+    def extract_6mers(
+        x_tensor: tf.Tensor
+    ) -> tf.Tensor:
         indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32)
         paddings = tf.constant([[0, 0], [2, 3]])
         padded = tf.pad(indices, paddings, mode='CONSTANT', constant_values=0)
@@ -111,7 +120,8 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         raise ValueError(f"Failed to load Keras model from path: {model_path}")
 
     final_metrics = []
-    raw_test_data = pickle.load(open(data_test, "rb"))
+    with open(data_test, "rb") as f:
+        raw_test_data = pickle.load(f)
 
     if max_samples is not None:
         raw_test_data = raw_test_data[:max_samples]
@@ -127,14 +137,12 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
     all_y_true, all_y_pred, all_y_prob = [], [], []
     all_fp_distances = []
 
-    count = 0
-    for sample in data_test:
-        count += 1
+    for count, sample in enumerate(data_test, start=1):
         print("Sequence:", count, "Progress:", 100 * count / len(data_test), "%")
 
         # Get true labels (0s and 1s) and sliding windows for the sequence
-        tagged_sequence = modeling.tag_positions(sample) # returns something like: [0,0,1,0,0...]
-        windows = modeling.slide_window(sample)  # usa modeling.WINDOW_SIZE setado pelo pipeline
+        tagged_sequence = modeling.tag_positions(sample) # returns something like: [0,0,1,0,0...] # type: ignore
+        windows = modeling.slide_window(sample)  # usa modeling.WINDOW_SIZE setado pelo pipeline # type: ignore
 
         X = []
         Y = []
@@ -159,7 +167,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
 
         # If the model has a 3rd input (positional encoding)
         if len(loaded_model.inputs) == 3:
-            pos = np.arange(len(windows), dtype=np.float32) / max(1, len(sample["sequence"]) - 1)
+            pos = np.arange(len(windows), dtype=np.float32) / max(1, len(sample["sequence"]) - 1) # type: ignore
             pos = np.expand_dims(pos, axis=-1)
             X_inputs['pos_input'] = pos
 
@@ -196,15 +204,15 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
         all_y_true.extend(Y[mask].tolist())
         all_y_pred.extend(predict_smoothed[mask].tolist())
         all_y_prob.extend(prob[mask].tolist())
-        all_fp_distances.extend(fp_boundary_distances(sample, Y, predict_smoothed, mask))
+        all_fp_distances.extend(fp_boundary_distances(sample, Y, predict_smoothed, mask)) # type: ignore
 
         # 4. Needleman-Wunsch
         # Final sequence of predicted exons and introns
-        final_seq = [sample["sequence"][i] for i in range(len(predict_smoothed))
+        final_seq = [sample["sequence"][i] for i in range(len(predict_smoothed)) # type: ignore
             if mask[i] and predict_smoothed[i] == 1]
 
         # Sequence of true exons and introns
-        true_final_seq = [sample["sequence"][i] for i in range(len(Y))
+        true_final_seq = [sample["sequence"][i] for i in range(len(Y)) # type: ignore
             if mask[i] and Y[i] == 1]
 
         if len(final_seq) != 0 and len(true_final_seq) != 0:
@@ -243,7 +251,7 @@ def validate_model(model_path, data_test, rf=None, threshold=0.50, max_samples=N
 
     print("\n--- GENERAL RESULTS ---")
     print("Total samples: ", len(final_metrics))
-    print("MEAN ALIGNMENT IDENTITY: {:.2f}%".format(mean_identity * 100))
+    print(f"MEAN ALIGNMENT IDENTITY: {mean_identity * 100:.2f}%")
     print(" 0-10%:   ", q0)
     print(" 10-20%:  ", q1)
     print(" 20-30%:  ", q2)

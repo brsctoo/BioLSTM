@@ -1,25 +1,18 @@
-"""
-Get the data_XY from modeling.py, train the model, and save it for later use in validation.py.
-
-The data_XY is a list of tuples: [(X, Y), ...], where X is the input sequence - window - (list of integers) and Y is the corresponding label (0 or 1).
-"""
 
 import numpy as np
-from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
-from lstm_model import create_model, BATCH_SIZE
+from tensorflow.keras.callbacks import EarlyStopping, History, ReduceLROnPlateau
 
-def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_output, epochs=100):
+from models.lstm_model import BATCH_SIZE, create_model
+
+
+def train_model_gene_split(
+    XY_train_filepath: str,
+    XY_val_filepath: str,
+    result_filepath_output: str,
+    epochs: int = 100
+) -> History:
     """
     Trains using two separate .npz files produced by
-    modeling.modeling_train_data_gene_split (gene-level split).
-
-    Args:
-        XY_train_filepath: path to the training .npz file.
-        XY_val_filepath: path to the validation .npz file.
-        result_filepath_output: path where the trained model (.h5) will be saved.
-
-    Returns:
-        history : Keras History object from model.fit.
     """
     lstm_model = create_model()
 
@@ -34,7 +27,7 @@ def train_model_gene_split(XY_train_filepath, XY_val_filepath, result_filepath_o
     X_val = np.array(val_data['X'], dtype=np.float32)
     y_val = np.array(val_data['y'], dtype=np.int32)
 
-    print(f"\n--- REAL dataset distribution (Seq2Seq) ---")
+    print("\n--- REAL dataset distribution (Seq2Seq) ---")
     count_0 = np.sum(y_train == 0)  # introns
     count_1 = np.sum(y_train == 1)  # exons
     total_valid = count_0 + count_1

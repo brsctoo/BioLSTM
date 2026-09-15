@@ -1,38 +1,18 @@
-"""
-The script processes genomic sequences with annotated exons and introns to prepare training data.
 
-Steps involved:
-1. Load data: Reads a pickled list of sequences and their exon coordinates.
-2. Tag positions: Converts each sequence into a list of labels (0 = exon, 1 = intron) of the same length as the sequence.
-3. Encode nucleotides: Transforms each base into a numeric representation (A=1, T=2, G=3, C=4, degenerate=5).
-4. Create sliding windows: For every position in each sequence, generates a centered window of 60 nucleotides.
-5. Pair input with label: Stores each window along with the central position label (0 or 1) in a list XY.
-6. Count exon/intron positions: Computes total numbers of introns and exons.
-7. Save processed data: Pickles the final XY dataset for later use in model training.
-
-Note:
-RYSWKMBDHVN = degenerate bases
-
-sample = {
-            "sequence": seq [ACTG...],
-            "exon_intervals": exons_intervals [(start1, end1), (start2, end2), ...],
-            "exons": exons [ACTG..., ACTG..., ...],
-            "intron_intervals": introns_intervals [(start1, end1), (start2, end2), ...],
-            "introns": introns [ACTG..., ACTG..., ...],
-}
-
-data.append(sample)
-"""
-
-import gc
-import numpy as np
 import pickle
+
+import numpy as np
+from numpy._typing import NDArray
 
 # Central window size
 WINDOW_SIZE = 400
 
-def set_window_size(size: int) -> None:
-    """Called by pipeline.py to propagate --window-size into this module."""
+def set_window_size(
+    size: int
+) -> None:
+    """
+    Called by pipeline.py to propagate --window-size into this module.
+    """
     global WINDOW_SIZE
     WINDOW_SIZE = size
 
@@ -60,30 +40,39 @@ BASE_TO_VECTOR = {
 degenerate_bases_count = 0
 total_bases_count = 0
 
-def tag_positions(sample) -> list[int]:
-    """Tag each position in the sequence as exon (1) or intron (0)."""
+def tag_positions(
+    sample: dict[str, object]
+) -> list[int]:
+    """
+    Tag each position in the sequence as exon (1) or intron (0).
+    """
 
-    tag = [-1] * len(sample["sequence"])  # Initialize all positions as -1
+    tag = [-1] * len(sample["sequence"])  # Initialize all positions as -1 # type: ignore
 
-    for start, end in sample["intron_intervals"]:
+    for start, end in sample["intron_intervals"]: # type: ignore
         for i in range(start, end + 1):
             if 0 <= i < len(tag):
                 tag[i] = 0  # Real intron
 
-    for start, end in sample["exon_intervals"]:
+    for start, end in sample["exon_intervals"]: # type: ignore
         for i in range(start, end + 1):
             if 0 <= i < len(tag):
                 tag[i] = 1  # Mark exon positions as 1
 
     return tag
 
-def slide_window(sample, window_size=None) -> list[list[int]]:
-    """Create a sliding window centered at the given position."""
+def slide_window(
+    sample: dict[str, object],
+    window_size: int | None = None
+) -> list[list[int]]:
+    """
+    Create a sliding window centered at the given position.
+    """
     if window_size is None:
          window_size = WINDOW_SIZE
 
     half = window_size // 2
-    seq = transform_baseSeq_to_onehot(sample["sequence"])
+    seq = transform_baseSeq_to_onehot(sample["sequence"]) # type: ignore
 
     windows = []
 
@@ -102,14 +91,18 @@ def slide_window(sample, window_size=None) -> list[list[int]]:
     return windows
 
 # Fixed return type hint from list[int] to np.ndarray
-def transform_baseSeq_to_onehot(baseSeq) -> np.ndarray:
-    """Transform nucleotide base sequence to numeric sequence."""
+def transform_baseSeq_to_onehot(
+    baseSeq: str | list[str]
+) -> np.ndarray:
+    """
+    Transform nucleotide base sequence to numeric sequence.
+    """
 
     encoded = []
     global total_bases_count
     total_bases_count += len(baseSeq)
 
-    for base in baseSeq.upper():
+    for base in baseSeq.upper(): # type: ignore
         # Degenerance counter
         if base in BASE_TO_VECTOR and base not in ['A', 'T', 'G', 'C']:
             global degenerate_bases_count
@@ -121,35 +114,13 @@ def transform_baseSeq_to_onehot(baseSeq) -> np.ndarray:
 
     return np.array(encoded, dtype=np.float16) # Convert to numpy array for better performance in model training
 
-def save_XY_to_file(output_path, X_list, y_list):
-    total_samples = len(X_list)
-    print(f"Stacking {total_samples} samples... (Anti-Crash Method)")
-
-    # 1. Pre-allocate matrix DIRECTLY IN LIGHT FORMAT (float16) to limit RAM overhead (~1.5 GB)
-    X = np.empty((total_samples, WINDOW_SIZE, 4), dtype=np.float16)
-
-    # 2. Fill the matrix sequentially row by row to prevent spikes in memory consumption
-    for i, x_window in enumerate(X_list):
-        X[i] = x_window
-
-    # 3. Immediately drop the old list structure to free memory allocation
-    del X_list
-
-    # 4. Downcast targets to the lowest valid memory size possible
-    y = np.array(y_list, dtype=np.int8)
-    del y_list
-
-    print(f"Saving compressed data array to: {output_path}")
-    np.savez_compressed(output_path, X=X, y=y)
-
-    # Final sweep
-    del X
-    del y
-
-def extract_windows_numpy(seq_onehot, indices, window_size=None):
+def extract_windows_numpy(
+    seq_onehot: np.ndarray,
+    indices: list[int],
+    window_size: int | None = None
+) -> np.ndarray:
     """
     Extract windows using numpy slicing with vectorized padding.
-    Avoids building heavy intermediate Python lists of lists.
     """
     if window_size is None:
          window_size = WINDOW_SIZE
@@ -183,10 +154,13 @@ def extract_windows_numpy(seq_onehot, indices, window_size=None):
 
     return X
 
-def extract_windows_labels_numpy(tagged_arr, indices, window_size=None):
+def extract_windows_labels_numpy(
+    tagged_arr: np.ndarray,
+    indices: list[int],
+    window_size: int | None = None
+) -> np.ndarray:
     """
     Extract the label windows (0 for intron, 1 for exon) using numpy slicing.
-    Pads out-of-bounds regions with -1 so the model can ignore them during training.
     """
     if window_size is None:
         window_size = WINDOW_SIZE
@@ -219,10 +193,13 @@ def extract_windows_labels_numpy(tagged_arr, indices, window_size=None):
 
     return Y_win
 
-def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
+def build_XY_from_gene_list(
+    gene_list: list[dict[str, object]],
+    window_size: int | None = None,
+    stride: int = 70
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate X, y dataset from a list of gene samples without global
-    undersampling, preserving the natural exon/intron class distribution.
     """
 
     if window_size is None:
@@ -251,12 +228,12 @@ def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
             continue
 
         # 3. Convert the raw DNA string into the One-Hot numeric matrix
-        seq_onehot = transform_baseSeq_to_onehot(sample["sequence"])
+        seq_onehot = transform_baseSeq_to_onehot(sample["sequence"]) # type: ignore
         seq_onehot = np.asarray(seq_onehot, dtype=np.float16)
 
         # 4. Extract the DNA features (X) and the labels (y) using numpy tools
-        X = extract_windows_numpy(seq_onehot, indices, window_size)
-        y = extract_windows_labels_numpy(tagged_arr, indices, window_size)
+        X = extract_windows_numpy(seq_onehot, indices, window_size) # type: ignore
+        y = extract_windows_labels_numpy(tagged_arr, indices, window_size) # type: ignore
 
         # Append the processed matrices of this gene to our blocks
         X_blocks.append(X)
@@ -274,26 +251,17 @@ def build_XY_from_gene_list(gene_list, window_size=None, stride=70):
     return X_final[rng_idx], y_final[rng_idx]
 
 
-def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_output,
-                                   val_gene_fraction=0.2):
+def modeling_train_data_gene_split(
+    data_filepath_input: str,
+    XY_train_output: str,
+    XY_val_output: str,
+    val_gene_fraction: float = 0.2
+) -> tuple[NDArray, NDArray, NDArray, NDArray]:
     """
     Splits genes BEFORE generating windows, eliminating
-    data leakage caused by overlapping sliding windows across train/val sets.
-
-    Saves two separate .npz files:
-        XY_train_output : 80% of genes -> training windows
-        XY_val_output   : 20% of genes -> validation windows
-
-    Args:
-        data_filepath_input : path to the .mod1 pickle file produced by genbank_reader.
-        XY_train_output     : output path for the training .npz file.
-        XY_val_output       : output path for the validation .npz file.
-        val_gene_fraction   : fraction of genes reserved for validation (default: 0.2).
-
-    Returns:
-        X_train, y_train, X_val, y_val as numpy arrays.
     """
-    data = pickle.load(open(data_filepath_input, "rb"))
+    with open(data_filepath_input, "rb") as f:
+        data = pickle.load(f)
 
     print(f"Total genes loaded: {len(data)}")
 
@@ -326,11 +294,6 @@ def modeling_train_data_gene_split(data_filepath_input, XY_train_output, XY_val_
 
     print("\nGene-split featurization complete!")
 
-    # Report degenerate nucleotide stats (accumulated across all processed genes)
-    print("Degenerate nucleotides count: ", degenerate_bases_count)
-    print("Total sequence bases count  : ", total_bases_count)
-    if total_bases_count > 0:
-        ratio = (degenerate_bases_count / total_bases_count) * 100
-        print(f"Ratio of degenerate nucleotides: {ratio:.4f}%")
+
 
     return X_train, y_train, X_val, y_val

@@ -1,19 +1,30 @@
-"""
-Search for highly diverse, random data on GenBank using the NCBI API.
-"""
 
-import os
 import random
 import time
 from typing import cast
+
 from Bio import Entrez, SeqIO
 
 Entrez.email = "bcominscheffel@gmail.com"
 
-def main(QUERY_GENERAL, QUERY_HOUSEKEEPING, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, MAX_HOUSEKEEPING, OUTPUT_FILE):
+def main(
+    QUERY_GENERAL: str,
+    MAX_RECORDS: int,
+    BATCH_SIZE: int,
+    MAX_POR_ESPECIE: int,
+    MAX_GENERAL: int,
+    OUTPUT_FILE: str
+) -> None:
     search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, OUTPUT_FILE)
 
-def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GENERAL, OUTPUT_FILE):
+def search_data(
+    QUERY_GENERAL: str,
+    MAX_RECORDS: int,
+    BATCH_SIZE: int,
+    MAX_POR_ESPECIE: int,
+    MAX_GENERAL: int,
+    OUTPUT_FILE: str
+) -> None:
     print("Searching GenBank for a highly diverse random dataset...")
 
     handle = Entrez.esearch(db="nucleotide", term=QUERY_GENERAL, retmax=0)
@@ -64,7 +75,7 @@ def search_data(QUERY_GENERAL, MAX_RECORDS, BATCH_SIZE, MAX_POR_ESPECIE, MAX_GEN
                         total_saves += 1
 
                 fetch_handle.close()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Erro no batch: {e}. Pulando para o próximo...")
                 continue
             print(f"Batch processed. Records saved so far: {total_saves}/{MAX_RECORDS}")
