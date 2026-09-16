@@ -94,14 +94,14 @@ def search_data_pipeline(
 ) -> None:
     query_to_print = QUERY_GENERAL.replace(' AND ', '\nAND ')
 
-    # Usa o get_output_paths para salvar o arquivo com o nome personalizado
+    # Use get_output_paths to save the file with a customized name
     genbank_input, _, _, _, _ = get_output_paths(name)
 
     log_stage("SEARCH — Querying GenBank")
     print(f"GENERAL QUERY: \n {query_to_print}")
     print(f"Salving gigadataset to: {genbank_input}")
 
-    # Criar diretório se não existir
+    # Create directory if it does not exist
     os.makedirs(os.path.dirname(genbank_input), exist_ok=True)
 
     genbank_searcher.main(
@@ -164,6 +164,7 @@ def train_pipeline(
     rf_scale: float = DEFAULT_RF_SCALE,
     recreate_data: bool = True,
     use_features: dict[str, bool] | None = None,
+    frontend: str = "hexamer",
     **injector_kwargs: float | str
 ) -> None:
     _, _, mod2, result, rf_result = get_output_paths(name)
@@ -175,7 +176,7 @@ def train_pipeline(
     else:
         log_stage("PRE-PROCESSING/FEATURIZATION SKIPPED")
 
-    # ETAPA 1.5: Treinar Random Forest e Extrair Features Tabulares
+    # STEP 1.5: Train Random Forest and Extract Tabular Features
     log_stage("RANDOM FOREST — Extração de features + Treinamento (pré-LSTM)")
     rf_metrics, trained_rf = rf_model.run_rf_pipeline(mod2_train, mod2_val, use_features=use_features)
     log_stage(
@@ -185,7 +186,7 @@ def train_pipeline(
     )
     gc.collect()
 
-    # ETAPA 2: Injeção de Probabilidade RF (Early Fusion)
+    # STEP 2: RF Probability Injection (Early Fusion)
     log_stage(f"AUGMENTAÇÃO — Injetando P(Éxon) do RF como 5º canal (One-Hot → 5D, W={window_size})")
 
     mod2_train_aug = mod2.replace(".npz", "_aug_train.npz")
@@ -220,17 +221,17 @@ def train_pipeline(
     gc.collect()
     log_stage("AUGMENTAÇÃO — DONE. Tensores (W, 5) salvos.")
 
-    # ETAPA 3: Bi-LSTM treinado sobre os tensores aumentados (W, 5)
+    # STEP 3: Bi-LSTM trained on the augmented tensors (W, 5)
     log_stage(f"TRAINING  (Bi-LSTM Seq2Seq Híbrido com entrada {window_size}×5, epochs={epochs})")
     print("Input train (aug):", mod2_train_aug)
     print("Input val   (aug):", mod2_val_aug)
     log_stage("TRAINING — Iniciando treinamento no Keras (Bi-LSTM)")
     from training import train_model
-    train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs)
+    train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs, frontend=frontend)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
 
-    # Salva o RF no disco para ser usado na fase de validação
+    # Save the RF to disk for use in the validation phase
     rf_model.save_rf(trained_rf, rf_result)
 
 
@@ -343,6 +344,9 @@ def main() -> None:
              "0.0 = RF desligado, 1.0 = influência total. "
              f"Default: {DEFAULT_RF_SCALE}")
 
+    parser.add_argument("--frontend", type=str, default="hexamer", choices=["hexamer", "conv"],
+                         help="Frontend de tokenização: 'hexamer' (atual) ou 'conv' (Fase 2.1/2.3)")
+
     parser.add_argument("--threshold", type=float, default=0.50,
         help="Decision threshold for probability -> Intron(0)/Exon(1) class assignment. "
              "Default: 0.50")
@@ -369,9 +373,10 @@ def main() -> None:
     name = args.name
     seed = args.seed
     window_size = args.window_size
-    epochs      = args.epochs
-    rf_scale    = args.rf_scale
-    threshold   = args.threshold
+    frontend = args.frontend
+    epochs = args.epochs
+    rf_scale = args.rf_scale
+    threshold = args.threshold
     recreate_data = not args.skip_data_generation
 
     use_features = {
@@ -384,7 +389,7 @@ def main() -> None:
 
     set_global_seed(seed)
 
-    # Propaga window_size para todos os módulos que usam janelas
+    # Propagate window_size to all modules that use windows
     modeling.set_window_size(window_size)
     if args.mode in ["train", "full"]:
         from models import lstm_model
@@ -431,11 +436,11 @@ def main() -> None:
     if args.mode == "search_data":
         search_data_pipeline(args.name)
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend)
     elif args.mode == "test":
         validate_pipeline(name, threshold=threshold, max_samples=args.limit_test)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)

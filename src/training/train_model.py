@@ -9,12 +9,13 @@ def train_model_gene_split(
     XY_train_filepath: str,
     XY_val_filepath: str,
     result_filepath_output: str,
-    epochs: int = 100
+    epochs: int = 100,
+    frontend: str = "hexamer",
 ) -> History:
     """
     Trains using two separate .npz files produced by
     """
-    lstm_model = create_model()
+    lstm_model = create_model(frontend=frontend)
 
     # 1. Load pre-split datasets
     print("Loading training data...")
@@ -75,7 +76,7 @@ def train_model_gene_split(
     val_sample_weights_arr = np.zeros_like(y_val, dtype=np.float32)
     val_sample_weights_arr[y_val == 0] = weight_0
     val_sample_weights_arr[y_val == 1] = weight_1
-    # y_val == -1 fica com peso 0 (ignorado) na validação
+    # y_val == -1 gets weight 0 (ignored) in validation
 
     # 5. Clean up targets: Replace -1 with 0 to prevent TensorFlow crashes
     y_train_clean = np.where(y_train == -1, 0, y_train)

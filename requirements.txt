@@ -3,3 +3,4 @@ minineedle
 tensorflow
 scikit-learn
 numpy
+pandas

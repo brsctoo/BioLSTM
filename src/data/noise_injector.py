@@ -236,17 +236,17 @@ def inject_degenerate_nucleotides_mixed(
     out = list(seq)
     cal = ILLUMINA_CALIBRATION[illumina_mode]
 
-    # --- pre-computa zonas de anotacao ---
+    # --- pre-compute annotation zones ---
     annotation_rates = _annotation_zone_rates(len(seq), exons_intervals, introns_intervals)
 
     for i, base in enumerate(out):
         if base not in CANONICAL:
-            continue  # degeneracao natural preservada
+            continue  # natural degeneracy preserved
 
-        # ---- taxa do canal Castle (conservacao) ----
+        # ---- Castle channel rate (conservation) ----
         castle_component = annotation_rates[i] * CASTLE_RATE
 
-        # ---- taxa do canal Illumina (composicao de sequencia) ----
+        # ---- Illumina channel rate (sequence composition) ----
         run_len = _homopolymer_run_length(seq, i)
         gc_local = _local_gc_content(seq, i, window=gc_window) # type: ignore
 
@@ -260,7 +260,7 @@ def inject_degenerate_nucleotides_mixed(
         illumina_component += gc_deviation * cal["base_rate"]
         illumina_component *= injection_rate
 
-        # ---- mistura ----
+        # ---- mixture ----
         rate = alpha * castle_component + (1 - alpha) * illumina_component
         rate = min(rate, 1.0) * scale
 

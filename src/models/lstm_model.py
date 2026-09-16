@@ -1,4 +1,3 @@
-
 import tensorflow as tf
 from tensorflow.keras.layers import (
     LSTM,
@@ -23,7 +22,7 @@ EPOCHS = 10
 BATCH_SIZE = 100
 LSTM_UNITS = 60
 
-# Reduzido para 1e-4 para evitar que o modelo decore o treino muito rápido
+# Reduced to 1e-4 to prevent the model from memorizing the training data too quickly
 LEARNING_RATE = 1e-4
 VALIDATION_SPLIT = 0.2
 WINDOWS_SIZE = 400  # overridden by pipeline.py via set_window_size()
@@ -41,15 +40,15 @@ def extract_6mers(
     x_tensor: object
 ) -> object:
     import tensorflow as tf
-    # Transforma o One-Hot (batch, W, 4) em Índices (batch, W)
+    # Transforms One-Hot (batch, W, 4) into Indices (batch, W)
     indices = tf.argmax(x_tensor, axis=-1, output_type=tf.int32) # type: ignore
 
-    # Pad para manter o tamanho exato de WINDOWS_SIZE.
-    # Para ler 6 letras, colocamos 2 de margem na esquerda e 3 na direita.
+    # Pad to keep the exact WINDOW_SIZE length.
+    # To read 6 letters, we place a margin of 2 on the left and 3 on the right.
     paddings = tf.constant([[0, 0], [2, 3]])
     padded = tf.pad(indices, paddings, mode='CONSTANT', constant_values=0)
 
-    # Extrai os 6 nucleotídeos da janela
+    # Extract the 6 nucleotides from the window
     pos1 = padded[:, :-5]
     pos2 = padded[:, 1:-4]
     pos3 = padded[:, 2:-3]
@@ -57,25 +56,39 @@ def extract_6mers(
     pos5 = padded[:, 4:-1]
     pos6 = padded[:, 5:]
 
-    # Calcula o ID do Hexâmero (4^6 = 4096 possíveis hexâmeros)
+    # Calculate Hexamer ID (4^6 = 4096 possible hexamers)
     kmer_id = pos1 * 1024 + pos2 * 256 + pos3 * 64 + pos4 * 16 + pos5 * 4 + pos6
     return kmer_id
 
-def create_model() -> object:
+
+def _hexamer_frontend(inp_dna: object) -> object:
+    from tensorflow.keras.layers import Embedding, Lambda  # type: ignore
+    kmers = Lambda(extract_6mers)(inp_dna)
+    x = Embedding(input_dim=4096, output_dim=64, name="hexamer_embedding")(kmers)
+    return Dropout(0.2)(x)
+
+
+def _conv_frontend(inp_dna: object) -> object:
+    from tensorflow.keras.layers import Conv1D
+    x = Conv1D(filters=64, kernel_size=6, padding="same", activation="relu",
+               name="motif_conv")(inp_dna)
+    x = BatchNormalization()(x)
+    return Dropout(0.2)(x)
+
+
+_FRONTENDS = {"hexamer": _hexamer_frontend, "conv": _conv_frontend}
+
+
+def create_model(frontend: str = "hexamer") -> object:
     """
-    Constrói a rede híbrida Seq2Seq: CNN (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
+    Seq2Seq: [frontend] (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
+    frontend: "hexamer" ou "conv".
     """
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
-    # --- 1. Frontend de Tokenização NLP (Hexamers) ---
-    # Lambda Layer converte o DNA One-Hot para IDs de Hexâmeros na GPU
-    from tensorflow.keras.layers import Embedding, Lambda  # type: ignore
-    kmers = Lambda(extract_6mers)(inp_dna)
-
-    # Embedding Layer (Word2Vec do DNA) - Dicionário de 4096 palavras
-    x = Embedding(input_dim=4096, output_dim=64, name="hexamer_embedding")(kmers)
-    x = Dropout(0.2)(x)
+    # --- 1. Frontend de motivo local ---
+    x = _FRONTENDS[frontend](inp_dna)
 
     # --- 2. Deep Bi-LSTM mantendo a sequência (Seq2Seq: return_sequences=True) ---
     # Primeira camada: atua como extratora de motivos locais (substituindo a CNN)
