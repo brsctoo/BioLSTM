@@ -165,6 +165,7 @@ def train_pipeline(
     recreate_data: bool = True,
     use_features: dict[str, bool] | None = None,
     frontend: str = "hexamer",
+    fusion: str = "concat",
     **injector_kwargs: float | str
 ) -> None:
     _, _, mod2, result, rf_result = get_output_paths(name)
@@ -227,7 +228,7 @@ def train_pipeline(
     print("Input val   (aug):", mod2_val_aug)
     log_stage("TRAINING — Iniciando treinamento no Keras (Bi-LSTM)")
     from training import train_model
-    train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs, frontend=frontend)
+    train_model.train_model_gene_split(mod2_train_aug, mod2_val_aug, result, epochs=epochs, frontend=frontend, fusion=fusion)
     gc.collect()
     log_stage("TRAINING — DONE. Model saved. Memory freed.")
 
@@ -347,6 +348,9 @@ def main() -> None:
     parser.add_argument("--frontend", type=str, default="hexamer", choices=["hexamer", "conv"],
                          help="Frontend de tokenização: 'hexamer' (atual) ou 'conv' (Fase 2.1/2.3)")
 
+    parser.add_argument("--fusion", type=str, default="concat", choices=["concat", "gated"],
+                         help="Como o canal do RF se combina com a LSTM: 'concat' (atual, peso fixo) ou 'gated' (peso aprendido por posição)")
+
     parser.add_argument("--threshold", type=float, default=0.50,
         help="Decision threshold for probability -> Intron(0)/Exon(1) class assignment. "
              "Default: 0.50")
@@ -374,6 +378,7 @@ def main() -> None:
     seed = args.seed
     window_size = args.window_size
     frontend = args.frontend
+    fusion = args.fusion
     epochs = args.epochs
     rf_scale = args.rf_scale
     threshold = args.threshold
@@ -436,11 +441,11 @@ def main() -> None:
     if args.mode == "search_data":
         search_data_pipeline(args.name)
     elif args.mode == "train":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend, fusion=fusion)
     elif args.mode == "test":
         validate_pipeline(name, threshold=threshold, max_samples=args.limit_test)
     elif args.mode == "full":
-        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend)
+        train_pipeline(injection_rate, injection_mode, name, epochs=epochs, window_size=window_size, rf_scale=rf_scale, recreate_data=recreate_data, use_features=use_features, **injector_kwargs, frontend=frontend, fusion=fusion)
         gc.collect()
         log_stage("TRANSITION — Training complete. Freeing memory before validation.")
         validate_pipeline(name, threshold=threshold)

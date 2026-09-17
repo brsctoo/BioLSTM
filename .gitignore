@@ -5,7 +5,6 @@ venv/
 
 # Large datasets and models
 *.gb
-*.npz
 *.mod1
 *.h5
 *.joblib

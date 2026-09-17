@@ -8,6 +8,7 @@ from tensorflow.keras.layers import (
     Dense,
     Dropout,
     Input,
+    Multiply,
 )
 from tensorflow.keras.losses import BinaryFocalCrossentropy
 from tensorflow.keras.models import Model
@@ -79,11 +80,21 @@ def _conv_frontend(inp_dna: object) -> object:
 _FRONTENDS = {"hexamer": _hexamer_frontend, "conv": _conv_frontend}
 
 
-def create_model(frontend: str = "hexamer") -> object:
-    """
-    Seq2Seq: [frontend] (Local) + Bi-LSTM (Temporal) + RF (Global fusionada no tempo).
-    frontend: "hexamer" ou "conv".
-    """
+def _fuse_concat(x: object, rf_repeated: object) -> object:
+    return Concatenate(axis=-1)([x, rf_repeated])
+
+
+def _fuse_gated(x: object, rf_repeated: object) -> object:
+    gate_input = Concatenate(axis=-1)([x, rf_repeated])
+    gate = Dense(1, activation='sigmoid', name='rf_trust_gate')(gate_input)
+    rf_weighted = Multiply(name='rf_weighted')([rf_repeated, gate])
+    return Concatenate(axis=-1)([x, rf_weighted])
+
+
+_FUSIONS = {"concat": _fuse_concat, "gated": _fuse_gated}
+
+
+def create_model(frontend: str = "hexamer", fusion: str = "concat") -> object:
     inp_dna = Input(shape=(WINDOWS_SIZE, 4), name="dna_input")
     inp_rf = Input(shape=(1,), name="rf_input")
 
@@ -113,10 +124,10 @@ def create_model(frontend: str = "hexamer") -> object:
     rf_repeated = RepeatVector(WINDOWS_SIZE)(inp_rf)
 
     # Junta a inteligência temporal (LSTM Seq2Seq) com o palpite estatístico (RF repetido no tempo)
-    merged = Concatenate(axis=-1)([x, rf_repeated])
+    merged = _FUSIONS[fusion](x, rf_repeated)
 
     # --- 5. Classificador Final ---
-    x_dense = Dense(32, activation='relu')(merged)
+    x_dense = Dense(32, activation='relu')(merged) # type: ignore
     x_dense = Dropout(0.3)(x_dense)
     out_final = Dense(1, activation='sigmoid', name='final_out')(x_dense)
 
