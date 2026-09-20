@@ -10,13 +10,11 @@ def train_model_gene_split(
     XY_val_filepath: str,
     result_filepath_output: str,
     epochs: int = 100,
-    frontend: str = "hexamer",
-    fusion: str = "concat",
 ) -> History:
     """
     Trains using two separate .npz files produced by
     """
-    lstm_model = create_model(frontend=frontend, fusion=fusion,)
+    lstm_model = create_model()
 
     # 1. Load pre-split datasets
     print("Loading training data...")
